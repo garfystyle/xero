@@ -1,0 +1,3 @@
+when player_join {
+    give_items([item(diamond), item(stone)])
+}

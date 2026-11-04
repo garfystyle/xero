@@ -1,0 +1,11 @@
+build/
+.gradle/
+out/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+.idea/
+.vscode/
+node_modules/
+examples/*.json
+.xero/

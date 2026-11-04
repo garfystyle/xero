@@ -1,0 +1,8 @@
+event<player_join> {
+    var a = value::current_health<current>;
+    var b = value::food_level<current>;
+    var c = value::food_saturation<current>;
+    if a > 1 and b > 1 and c > 1 {
+        player::message("всё хорошо");
+    }
+}

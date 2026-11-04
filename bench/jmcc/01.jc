@@ -1,0 +1,3 @@
+event<player_join> {
+    player::message("Привет, %player%!");
+}

@@ -1,0 +1,5 @@
+when player_join {
+    a = value.current_health
+    hp = clamp(a - 5, 0, 20)
+    send_message("${hp}")
+}

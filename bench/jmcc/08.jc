@@ -1,0 +1,7 @@
+event<player_join> {
+    var a = value::current_health<current>;
+    var b = value::food_level<current>;
+    if a == 1 or b == 1 {
+        player::message("плохо");
+    }
+}

@@ -1,0 +1,6 @@
+event<player_join> {
+    var a = value::current_health<current>;
+    var b = value::food_level<current>;
+    var x = a * 2 + b;
+    player::message("${x}");
+}

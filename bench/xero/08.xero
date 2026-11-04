@@ -1,0 +1,6 @@
+when player_join {
+    a, b = value.current_health, value.food_level
+    if a == 1 or b == 1 {
+        send_message("плохо")
+    }
+}

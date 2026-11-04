@@ -1,0 +1,11 @@
+save score
+
+when player_join {
+    if score >= 100 {
+        send_message("золото")
+    } else if score >= 50 {
+        send_message("серебро")
+    } else {
+        send_message("бронза")
+    }
+}

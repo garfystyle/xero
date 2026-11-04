@@ -1,0 +1,10 @@
+event<player_join> {
+    save var score: number;
+    if score >= 100 {
+        player::message("золото");
+    } elif score >= 50 {
+        player::message("серебро");
+    } else {
+        player::message("бронза");
+    }
+}

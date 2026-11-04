@@ -1,0 +1,3 @@
+when player_join {
+    send_message("Осталось ${value.max_health - value.current_health}")
+}

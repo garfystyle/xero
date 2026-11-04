@@ -1,0 +1,5 @@
+when player_join {
+    a, b, c = value.current_health, value.food_level, value.food_saturation
+    avg = (a + b + c) / 3
+    send_message("${avg}")
+}

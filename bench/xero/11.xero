@@ -1,0 +1,6 @@
+when player_join {
+    items = ["камень", "дерево", "железо"]
+    for it in items {
+        send_message("Предмет: ${it}")
+    }
+}

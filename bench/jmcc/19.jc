@@ -1,0 +1,4 @@
+event<player_join> {
+    var left = value::max_health<current> - value::current_health<current>;
+    player::message("Осталось ${left}");
+}

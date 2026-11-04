@@ -1,0 +1,5 @@
+when player_join {
+    m = {"a": 1, "b": 2}
+    get_map_value(variable: v, map: m, key: "a")
+    send_message("${v}")
+}

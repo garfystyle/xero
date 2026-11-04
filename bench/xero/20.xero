@@ -1,0 +1,8 @@
+func kit(n: number) {
+    give_items(item(diamond), amount: n)
+}
+
+when player_join {
+    kit(1)
+    kit(2)
+}

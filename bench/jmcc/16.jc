@@ -1,0 +1,5 @@
+event<player_join> {
+    var m = {"a": 1, "b": 2};
+    var v = m["a"];
+    player::message("${v}");
+}

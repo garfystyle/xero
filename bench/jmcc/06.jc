@@ -1,0 +1,5 @@
+event<player_join> {
+    var a = value::current_health<current>;
+    var hp = (a - 5).clamp(0, 20);
+    player::message("${hp}");
+}

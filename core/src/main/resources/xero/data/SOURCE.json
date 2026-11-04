@@ -1,0 +1,33 @@
+{
+    "from": "jcode/src/main/resources/assets/xerocode",
+    "synced": "2026-11-04",
+    "updated": "2026-11-01, \u043e\u0431\u0445\u043e\u0434 \u043c\u0435\u043d\u044e \u0438 \u0448\u0430\u0431\u043b\u043e\u043d\u044b \u0441\u0442\u0440\u043e\u043a (dump/update-2026-11-01)",
+    "actions": 1049,
+    "events": 208,
+    "files": {
+        "mapping.json": {
+            "bytes": 433347,
+            "sha256": "d457ceffa5aae7d6759408862ecebe57d4fe519cabf0b54404aebb458031ff47"
+        },
+        "catalog.json": {
+            "bytes": 716232,
+            "sha256": "5bebf3049947219a34ed626a51aab9b0db7d4cf55bde58d3eadaa72126006294"
+        },
+        "values.json": {
+            "bytes": 84584,
+            "sha256": "1410b474cacbc40d3e8321272a2f4b7d35095dd80f8d3207eba6a4fa2d52b206"
+        },
+        "pickers.json": {
+            "bytes": 81041,
+            "sha256": "ed9b38807490dd5932235c07198dd49b77b50244652d62bfd076916d403c4132"
+        },
+        "placeholders.json": {
+            "bytes": 9434,
+            "sha256": "a51e5f583099416a193e8cee0975326b53580b90c95e9fbb6786bc38bab6b2ea"
+        },
+        "components.json": {
+            "bytes": 35721,
+            "sha256": "0b1f9f05f102e1a8fdf310a44a55491939d25e36cc9762b2154cb99699d5bd6a"
+        }
+    }
+}

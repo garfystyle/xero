@@ -1,0 +1,5 @@
+event<player_join> {
+    save var coins;
+    coins += 10;
+    player::message("Монет: ${coins}");
+}

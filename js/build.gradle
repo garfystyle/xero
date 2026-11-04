@@ -1,0 +1,84 @@
+plugins {
+    id 'org.teavm' version '0.15.0'
+}
+
+dependencies {
+    implementation project(':core')
+    implementation teavm.libs.jsoApis
+    compileOnly 'org.teavm:teavm-extension-spi:0.15.0'
+}
+
+teavm {
+    js {
+        mainClass = 'xero.js.Bridge'
+        moduleType = org.teavm.gradle.api.JSModuleType.COMMON_JS
+        obfuscated = !providers.gradleProperty('dev').isPresent()
+        targetFileName = 'xero.js'
+    }
+}
+
+tasks.register('bundle', Copy) {
+    group = 'xero'
+    description = 'Собирает ядро в JavaScript: js/build/dist/xero.js'
+    dependsOn 'generateJavaScript'
+    from(layout.buildDirectory.dir('generated/teavm/js')) { include 'xero.js' }
+    into layout.buildDirectory.dir('dist')
+}
+
+tasks.named('compileJava') {
+    options.compilerArgs << '-proc:none'
+}
+
+tasks.named('test') {
+    dependsOn 'bundle'
+}
+
+def windows = System.getProperty('os.name').toLowerCase().contains('win')
+def npx = windows ? ['cmd', '/c', 'npx'] : ['npx']
+def npm = windows ? ['cmd', '/c', 'npm'] : ['npm']
+def vscodeDir = rootProject.file('vscode')
+def vsixFile = layout.buildDirectory.file("dist/xero-${rootProject.xero_version}.vsix").get().asFile
+def stageDir = layout.buildDirectory.dir('vscode').get().asFile
+def extensionVersion = rootProject.xero_version
+
+tasks.register('vscodeStage', Sync) {
+    description = 'Готовит расширение к упаковке: версия из gradle.properties, ядро xero.js'
+    dependsOn 'bundle'
+    inputs.property('version', extensionVersion)
+    from(vscodeDir) {
+        exclude 'node_modules/**', 'test/**', 'xero.js', '*.vsix'
+        filesMatching('package.json') {
+            filter { line -> line.replaceFirst(/^(\s*"version":\s*)"[^"]*"/, "\$1\"${extensionVersion}\"") }
+        }
+    }
+    from(layout.buildDirectory.file('dist/xero.js'))
+    into stageDir
+    doLast {
+        java.nio.file.Files.copy(layout.buildDirectory.file('dist/xero.js').get().asFile.toPath(),
+                new File(vscodeDir, 'xero.js').toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+    }
+}
+
+tasks.register('vsix', Exec) {
+    group = 'xero'
+    description = 'Собирает расширение VS Code: js/build/dist/xero-<версия>.vsix'
+    dependsOn 'vscodeStage'
+    inputs.dir(stageDir).withPropertyName('vscode')
+    outputs.file(vsixFile)
+    workingDir stageDir
+    commandLine(npx + ['--yes', '@vscode/vsce@4.0.0', 'package', '--no-dependencies', '--allow-missing-repository',
+                       '--skip-license', '-o', vsixFile.path])
+}
+
+tasks.register('vscodeDeps', Exec) {
+    workingDir vscodeDir
+    commandLine(npm + ['install', '--no-save', '--no-audit', '--no-fund', '@vscode/test-electron@3.1.0'])
+}
+
+tasks.register('vscodeTest', Exec) {
+    group = 'xero'
+    description = 'Ставит .vsix в чистый VS Code без Java и проверяет расширение в нём'
+    dependsOn 'vsix', 'vscodeDeps'
+    workingDir vscodeDir
+    commandLine 'node', 'test/run.js', vsixFile.path
+}

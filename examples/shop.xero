@@ -1,0 +1,33 @@
+save coins
+
+func price(kind) {
+    prices = {"sword": 100, "apple": 5}
+    return prices[kind]
+}
+
+func can_buy(kind) {
+    return coins >= price(kind) ? 1 : 0
+}
+
+when player_join {
+    coins = coins + 10
+    give_items(item(diamond_sword, name: "&bМеч героя", lore: ["Цена: 100 монет", "&6Только для смелых"],
+        enchantments: {sharpness: 5, unbreaking: 3}, unbreakable: true, tags: {kind: "sword"}))
+    give_items(
+        item(
+            golden_apple, 3, name: mm"<gradient:#ffcc00:#ff6600>Золотое яблоко</gradient>",
+            glint: true,
+        ),
+    )
+    send_message("Монет: ${coins}, меч ${can_buy("sword") == 1 ? "по карману" : "пока дорог"}")
+}
+
+when player_jump {
+    top = [0, 0, 0]
+    top[0] = coins
+    top[1] += 1
+    if can_buy("apple") == 1 and top[0] > 5 {
+        coins -= price("apple")
+        send_message("Куплено яблоко, осталось ${coins}")
+    }
+}

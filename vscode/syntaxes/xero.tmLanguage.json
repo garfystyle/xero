@@ -1,0 +1,302 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Xero",
+  "scopeName": "source.xero",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#decorator"
+    },
+    {
+      "include": "#header"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#names"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#targets"
+    },
+    {
+      "include": "#value"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#scopes"
+    },
+    {
+      "include": "#calls"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.xero",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.xero",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "decorator": {
+      "match": "^\\s*(@)(line|hidden|icon|display_name|display_description|description|values)\\b",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.decorator.xero"
+        },
+        "2": {
+          "name": "entity.name.function.decorator.xero"
+        }
+      }
+    },
+    "header": {
+      "patterns": [
+        {
+          "match": "\\b(when|когда)\\s+([A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.xero"
+            },
+            "2": {
+              "name": "entity.name.type.event.xero"
+            }
+          }
+        },
+        {
+          "match": "\\b(func|функция|process|процесс)\\s+(`[^`]*`|[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.xero"
+            },
+            "2": {
+              "name": "entity.name.function.xero"
+            }
+          }
+        },
+        {
+          "match": "\\b(start|запустить)\\s+(`[^`]*`|[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.xero"
+            },
+            "2": {
+              "name": "entity.name.function.xero"
+            }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.xero",
+      "begin": "(?:\\b(mm|plain|json|legacy))?(\")",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.string-prefix.xero"
+        },
+        "2": {
+          "name": "punctuation.definition.string.begin.xero"
+        }
+      },
+      "end": "\"|$",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.string.end.xero"
+        }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.xero",
+          "match": "\\\\(?:[\"\\\\$]|u[0-9a-fA-F]{4})"
+        },
+        {
+          "name": "meta.interpolation.xero",
+          "begin": "\\$\\{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.interpolation.begin.xero"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.interpolation.end.xero"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#value"
+            },
+            {
+              "include": "#names"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#calls"
+            },
+            {
+              "include": "#operators"
+            }
+          ]
+        },
+        {
+          "name": "constant.other.placeholder.xero",
+          "match": "%[A-Za-z_]+(?:%|\\()"
+        }
+      ]
+    },
+    "names": {
+      "name": "variable.other.quoted.xero",
+      "match": "`[^`\\n]*`"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.time.xero",
+          "match": "\\b\\d+(?:\\.\\d+)?(?:ms|мс|сек|мин|час|тик|s|с|m|м|h|ч|t|т|d|д)(?:\\d+(?:\\.\\d+)?(?:ms|мс|сек|мин|час|тик|s|с|m|м|h|ч|t|т|d|д))*\\b"
+        },
+        {
+          "name": "constant.numeric.xero",
+          "match": "\\b\\d+(?:\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "targets": {
+      "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "punctuation.definition.target.xero"
+        },
+        "2": {
+          "name": "support.variable.target.xero"
+        }
+      }
+    },
+    "value": {
+      "match": "\\b(value)(\\.)([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": {
+          "name": "support.class.value.xero"
+        },
+        "2": {
+          "name": "punctuation.accessor.xero"
+        },
+        "3": {
+          "name": "support.constant.value.xero"
+        }
+      }
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "constant.language.xero",
+          "match": "(?<![A-Za-zА-Яа-яЁё0-9_.])(true|false|истина|ложь|PI|E)(?![A-Za-zА-Яа-яЁё0-9_(])"
+        },
+        {
+          "name": "storage.type.const.xero",
+          "match": "(?<![A-Za-zА-Яа-яЁё0-9_.])(const|константа)(?=\\s)"
+        },
+        {
+          "name": "keyword.control.xero",
+          "match": "(?<![A-Za-zА-Яа-яЁё0-9_.])(if|если|else|иначе|for|для|in|в|step|шаг|while|пока|repeat|повторить|forever|всегда|return|вернуть|break|прервать|continue|продолжить|start|запустить|import|импорт)(?![A-Za-zА-Яа-яЁё0-9_(])"
+        },
+        {
+          "name": "keyword.operator.logical.xero",
+          "match": "(?<![A-Za-zА-Яа-яЁё0-9_.])(and|и|or|или|not|не)(?![A-Za-zА-Яа-яЁё0-9_(])"
+        },
+        {
+          "name": "constant.language.xero",
+          "match": "(?<![A-Za-zА-Яа-яЁё0-9_.`])_(?![A-Za-zА-Яа-яЁё0-9_])"
+        }
+      ]
+    },
+    "scopes": {
+      "patterns": [
+        {
+          "name": "storage.modifier.scope.xero",
+          "match": "(?<![A-Za-zА-Яа-яЁё0-9_.@])(game|save|local|line)(?=\\s+[`A-Za-zА-Яа-яЁё_])"
+        },
+        {
+          "match": "(?<![A-Za-zА-Яа-яЁё0-9_.])(game|save|local|line)(\\.)(?=`|[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё_0-9]*(?!\\s*\\(|[A-Za-zА-Яа-яЁё_0-9]))",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.scope.xero"
+            },
+            "2": {
+              "name": "punctuation.accessor.xero"
+            }
+          }
+        }
+      ]
+    },
+    "calls": {
+      "patterns": [
+        {
+          "match": "\\b(player|entity|game|var|select|repeat|control|controller)(\\.)([A-Za-z_][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "support.class.category.xero"
+            },
+            "2": {
+              "name": "punctuation.accessor.xero"
+            },
+            "3": {
+              "name": "support.function.action.xero"
+            }
+          }
+        },
+        {
+          "match": "\\b(item|loc|vec|enum|len|sound|particle|potion|block|num|raw|call)(?=\\s*\\()",
+          "name": "support.type.factory.xero"
+        },
+        {
+          "match": "(`[^`]*`|[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*)(?=\\s*\\()",
+          "name": "entity.name.function.call.xero"
+        },
+        {
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(\\s*)(:)(?!:)",
+          "captures": {
+            "1": {
+              "name": "variable.parameter.named.xero"
+            },
+            "3": {
+              "name": "punctuation.separator.xero"
+            }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.range.xero",
+          "match": "\\.\\."
+        },
+        {
+          "name": "keyword.operator.xero",
+          "match": "==|!=|>=|<=|\\+=|-=|\\*=|/=|[=<>+\\-*/%]"
+        }
+      ]
+    }
+  }
+}

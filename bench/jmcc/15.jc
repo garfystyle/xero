@@ -1,0 +1,10 @@
+game var ticks;
+process timer() {
+    while true {
+        code::wait(1);
+        ticks += 1;
+    }
+}
+event<world_start> {
+    timer();
+}

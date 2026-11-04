@@ -1,0 +1,5 @@
+when player_join {
+    a, b = value.current_health, value.food_level
+    x = a * 2 + b
+    send_message("${x}")
+}

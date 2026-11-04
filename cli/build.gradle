@@ -1,0 +1,55 @@
+apply plugin: 'application'
+
+dependencies {
+    implementation project(':core')
+}
+
+processResources {
+    def shown = version
+    inputs.property('version', shown)
+    filesMatching('xero/cli/version.txt') {
+        expand(version: shown)
+    }
+}
+
+application {
+    mainClass = 'xero.cli.Main'
+    applicationName = 'xero'
+    applicationDefaultJvmArgs = ['-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
+}
+
+tasks.named('run') {
+    workingDir = rootProject.projectDir
+    jvmArgs '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8'
+}
+
+tasks.register('names', JavaExec) {
+    group = 'xero'
+    description = 'Пересобирает docs/NAMES.md из данных ядра'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'xero.cli.Main'
+    workingDir = rootProject.projectDir
+    args 'names', '--md', 'docs/NAMES.md'
+    jvmArgs '-Dstdout.encoding=UTF-8'
+}
+
+tasks.register('docs', JavaExec) {
+    group = 'xero'
+    description = 'Пересобирает справочник в docs/ из данных ядра'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'xero.cli.Main'
+    workingDir = rootProject.projectDir
+    def lang = rootProject.file('../dump/lang-2026-11-04/creative_plus_ru_RU.properties')
+    args(['names', '--docs', 'docs'] + (lang.isFile() ? ['--lang', lang.path] : []))
+    jvmArgs '-Dstdout.encoding=UTF-8'
+}
+
+tasks.register('checkData', JavaExec) {
+    group = 'xero'
+    description = 'Проверяет данные сервера: у всех действий знакомые ядру категории'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'xero.cli.Main'
+    workingDir = rootProject.projectDir
+    args 'data'
+    jvmArgs '-Dstdout.encoding=UTF-8'
+}

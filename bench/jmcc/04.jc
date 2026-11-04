@@ -1,0 +1,7 @@
+event<player_join> {
+    var a = value::current_health<current>;
+    var b = value::food_level<current>;
+    var c = value::food_saturation<current>;
+    var avg = (a + b + c) / 3;
+    player::message("${avg}");
+}

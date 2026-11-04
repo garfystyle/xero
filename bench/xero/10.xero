@@ -1,0 +1,7 @@
+when player_join {
+    s = 0
+    for i in 1..10 {
+        s += i
+    }
+    send_message("${s}")
+}

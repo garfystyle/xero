@@ -1,0 +1,51 @@
+func xero_check(amount: number = 1, who) {
+    send_message("Привет, %player%!")
+    @all send_message(mm"<red>всем")
+    give_items(item(diamond, 5))
+    save `xero check` = 0
+    `xero check` += 1
+    x = get_list_value([1, 2, 3], 1)
+    if x == 1 {
+        send_message("один")
+    } else if not x > 2 {
+        send_message("не больше двух")
+    } else {
+        send_message("иначе")
+    }
+    if @victim has_item(item(bread)) {
+        wait(1, time_unit: seconds)
+    }
+    repeat.multi_times(i, 3) {
+        play_sound(sound(entity.player.levelup, pitch: 2))
+        break
+    }
+    repeat.while(x < 5) {
+        x += 1
+    }
+    add_custom_crafting_recipe("xero_check", item(diamond_sword), [
+        _, item(emerald), _,
+        _, item(emerald), _,
+        _, item(stick),   _,
+    ], recipe_type: shaped)
+    y = loc(1, 2, 3)
+    y = vec(0, -1, 0.5)
+    y = block(stone)
+    y = particle(flame, count: 3)
+    y = potion(speed, amplifier: 1, duration: 600)
+    y = @killer value.current_health
+    y = {"k": "v"}
+    `xero check 2`(n: 7)
+    return
+}
+
+process xero_check_process() {
+    repeat.forever() {
+        wait(20)
+    }
+}
+
+when player_jump {
+    if value.current_health < 0 {
+        send_message("никогда")
+    }
+}

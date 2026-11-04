@@ -1,0 +1,6 @@
+event<player_join> {
+    var items = ["камень", "дерево", "железо"];
+    for it in items {
+        player::message("Предмет: ${it}");
+    }
+}

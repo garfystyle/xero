@@ -1,0 +1,16 @@
+when зашёл {
+    отправить_сообщение("привет")
+}
+
+when player_join {
+    player.teleport(5)
+    give_items(block(stone))
+    give_items(item(diamnd))
+    wait("abc")
+    if game.block_equals(value.location, item(stone)) {}
+    wait(num("%math(sqr(4))"))
+}
+
+when time_skip {
+    send_message("утро")
+}

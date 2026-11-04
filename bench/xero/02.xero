@@ -1,0 +1,6 @@
+save coins
+
+when player_join {
+    coins += 10
+    send_message("Монет: ${coins}")
+}

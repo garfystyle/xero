@@ -1,0 +1,7 @@
+{
+  "name": "xero-test-runner",
+  "version": "0.0.0",
+  "publisher": "xero",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./index.js"
+}

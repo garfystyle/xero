@@ -1,0 +1,75 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+
+subprojects {
+    apply plugin: 'java'
+
+    group = 'xero'
+    version = rootProject.xero_version
+
+    repositories {
+        mavenCentral()
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(25)
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+        options.release = 25
+        options.compilerArgs += ['-Xlint:all', '-Werror']
+    }
+
+    dependencies {
+        testImplementation platform('org.junit:junit-bom:5.13.4')
+        testImplementation 'org.junit.jupiter:junit-jupiter'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+
+    tasks.withType(Test).configureEach {
+        useJUnitPlatform()
+        systemProperty 'stdout.encoding', 'UTF-8'
+        testLogging {
+            events 'failed'
+            exceptionFormat = 'full'
+        }
+    }
+}
+
+def dataFiles = ['mapping.json', 'catalog.json', 'values.json', 'pickers.json', 'placeholders.json', 'components.json']
+
+tasks.register('syncData') {
+    group = 'xero'
+    description = 'Копирует данные сервера из ассетов XeroCode в ядро и проверяет их (:cli:checkData)'
+    finalizedBy ':cli:checkData'
+    def from = file('../jcode/src/main/resources/assets/xerocode')
+    def to = file('core/src/main/resources/xero/data')
+    doLast {
+        if (!from.isDirectory()) throw new GradleException("нет ассетов XeroCode: $from")
+        to.mkdirs()
+        def files = [:]
+        dataFiles.each { name ->
+            def source = new File(from, name)
+            if (!source.isFile()) throw new GradleException("нет файла: $source")
+            def bytes = source.bytes
+            new File(to, name).bytes = bytes
+            def sha = MessageDigest.getInstance('SHA-256').digest(bytes).encodeHex().toString()
+            files[name] = [bytes: bytes.length, sha256: sha]
+        }
+        def meta = new JsonSlurper().parse(new File(from, 'mapping.json'), 'UTF-8').meta
+        def source = [
+                from   : 'jcode/src/main/resources/assets/xerocode',
+                synced : new Date().format('yyyy-MM-dd'),
+                updated: meta.updated,
+                actions: meta.actions,
+                events : meta.events,
+                files  : files
+        ]
+        new File(to, 'SOURCE.json').setText(JsonOutput.prettyPrint(JsonOutput.toJson(source)) + '\n', 'UTF-8')
+        println "данные скопированы: ${meta.actions} действий, ${meta.events} событий (${meta.updated})"
+    }
+}

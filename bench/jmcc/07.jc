@@ -1,0 +1,7 @@
+event<player_join> {
+    var a = value::current_health<current>;
+    var b = value::food_level<current>;
+    if a > 5 and b < 3 {
+        player::message("голоден");
+    }
+}

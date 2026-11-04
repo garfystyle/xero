@@ -1,0 +1,3 @@
+event<player_join> {
+    player::teleport(location(0, 64, 0));
+}

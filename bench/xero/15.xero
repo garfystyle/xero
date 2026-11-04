@@ -1,0 +1,12 @@
+game ticks
+
+process timer() {
+    forever {
+        wait(1)
+        ticks += 1
+    }
+}
+
+when world_start {
+    start timer()
+}

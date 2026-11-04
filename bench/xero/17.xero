@@ -1,0 +1,5 @@
+when player_join {
+    if not has_item(item(bread)) {
+        give_items(item(bread))
+    }
+}

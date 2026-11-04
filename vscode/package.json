@@ -1,0 +1,154 @@
+{
+  "name": "xero",
+  "displayName": "Xero",
+  "description": "Язык Xero для JustMC (Creative+): ошибки на лету, подсказки по-русски, формат и заливка в мир. Java не нужна.",
+  "version": "0.0.0",
+  "publisher": "xero",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Linters"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:xero"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "xero",
+        "aliases": [
+          "Xero",
+          "xero"
+        ],
+        "extensions": [
+          ".xero"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "xero",
+        "scopeName": "source.xero",
+        "path": "./syntaxes/xero.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "xero.upload",
+        "title": "Залить в мир (заменить код мира)",
+        "category": "Xero"
+      },
+      {
+        "command": "xero.add",
+        "title": "Дописать в мир (ничего не стирая)",
+        "category": "Xero"
+      },
+      {
+        "command": "xero.pull",
+        "title": "Скачать код мира по ссылке /editor download",
+        "category": "Xero"
+      },
+      {
+        "command": "xero.pullGame",
+        "title": "Скачать код мира из игры",
+        "category": "Xero"
+      },
+      {
+        "command": "xero.diff",
+        "title": "Показать, что изменится в мире",
+        "category": "Xero"
+      },
+      {
+        "command": "xero.updateModules",
+        "title": "Обновить модули проекта",
+        "category": "Xero"
+      },
+      {
+        "command": "xero.build",
+        "title": "Собрать JSON",
+        "category": "Xero"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "xero.upload",
+          "when": "editorLangId == xero"
+        },
+        {
+          "command": "xero.add",
+          "when": "editorLangId == xero"
+        },
+        {
+          "command": "xero.build",
+          "when": "editorLangId == xero"
+        }
+      ]
+    },
+    "semanticTokenModifiers": [
+      { "id": "game", "description": "Игровая переменная" },
+      { "id": "save", "description": "Сохранённая переменная" },
+      { "id": "local", "description": "Локальная переменная" },
+      { "id": "line", "description": "Строчная переменная" },
+      { "id": "const", "description": "Постоянная" }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "xero",
+        "scopes": {
+          "variable.game": ["support.type.xero"],
+          "variable.save": ["constant.language.xero"],
+          "variable.line": ["variable.parameter.xero"],
+          "variable.const": ["variable.other.constant.xero"],
+          "variable.local": ["variable.other.readwrite.xero"]
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Xero",
+      "properties": {
+        "xero.useGame": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Если запущена игра с модом XeroCode и игрок в /dev, «Залить в мир» и «Дописать в мир» отправляют код сразу в игру, без буфера обмена."
+        },
+        "xero.lineUpload": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Если изменилось немного строк, менять в мире только их: мир не перезапускается, остальной код не трогается."
+        },
+        "xero.gameLog": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Показывать ответы сервера из игры в окне вывода «Xero: игра»."
+        },
+        "xero.uploadOnSave": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Заливать файл в мир при каждом сохранении, если игра с XeroCode запущена и игрок в /dev."
+        },
+        "xero.storeUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Своё хранилище кода для «Залить в мир» (как `store.py`): `http://хост:порт/путь/` — код уходит на `<адрес>upload.php`, ссылка для `/module loadUrl` — `<адрес>code/<id>.json`. Пусто — хранилище Xero. Если хранилище не ответило, код уходит на официальный `m.justmc.ru`."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[xero]": {
+        "editor.wordBasedSuggestions": "off",
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true,
+        "editor.defaultFormatter": "xero.xero",
+        "editor.unicodeHighlight.allowedLocales": { "_os": true, "_vscode": true, "ru": true },
+        "files.eol": "\n"
+      }
+    }
+  }
+}

@@ -1,0 +1,3 @@
+when player_join {
+    send_message("Привет, %player%!")
+}

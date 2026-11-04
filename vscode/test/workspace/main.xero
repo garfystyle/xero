@@ -1,0 +1,6 @@
+import "kit.xero"
+
+when player_join {
+    send_mesage("привет")
+    greet()
+}

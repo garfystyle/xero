@@ -1,0 +1,7 @@
+function kit(n: number) {
+    player::give_items(item("diamond"), amount = n);
+}
+event<player_join> {
+    kit(1);
+    kit(2);
+}
