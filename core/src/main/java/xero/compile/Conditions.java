@@ -46,9 +46,10 @@ final class Conditions {
                 yield v == null ? null : !v;
             }
             case Ast.Binary b when b.op().equals("and") || b.op().equals("or") -> {
+                boolean all = b.op().equals("and");
                 Boolean l = truth(b.left()), r = truth(b.right());
-                if (l == null || r == null) yield null;
-                yield b.op().equals("and") ? l && r : l || r;
+                if (l != null) yield l == all ? r : l;
+                yield r != null && r != all && c.calls.pure(b.left()) ? r : null;
             }
             case Ast.Var v -> {
                 Expr k = c.constant(v);
@@ -71,9 +72,11 @@ final class Conditions {
                 c.loops++;
                 List<Object> ops = c.compiler.block(body);
                 c.loops--;
-                return obj("action", "repeat_while", "values", captured.value().values(),
-                        "conditional", obj("action", captured.value().id(), "is_inverted", captured.value().inverted()),
-                        "operations", ops);
+                Map<String, Object> loop = obj("action", "repeat_while", "values", captured.value().values(),
+                        "conditional", obj("action", captured.value().id(), "is_inverted", captured.value().inverted()));
+                if (captured.value().selection() != null) loop.put("selection", captured.value().selection());
+                loop.put("operations", ops);
+                return loop;
             }
             List<Object> inner = new ArrayList<>(captured.pre());
             inner.add(condOp(captured.value().negated(),
@@ -103,11 +106,15 @@ final class Conditions {
             boolean all = b.op().equals("and") != negated;
             List<Tree> items = new ArrayList<>();
             for (Expr side : List.of(b.left(), b.right())) {
+                Boolean fixed = truth(side);
+                if (fixed != null && fixed != negated == all) continue;
                 Tree t = tree(side, negated);
                 if (all && t instanceof All a) items.addAll(a.items());
                 else if (!all && t instanceof Any a) items.addAll(a.items());
                 else items.add(t);
             }
+            if (items.isEmpty()) return new Leaf(new Ast.Num(all ? "1" : "0", b.span()), false);
+            if (items.size() == 1) return items.get(0);
             Tree joined = joined(items, all);
             if (joined != null) return joined;
             return all ? new All(items) : new Any(items);
@@ -140,7 +147,7 @@ final class Conditions {
                 || e instanceof Ast.Unary u && u.op().equals("-") && u.operand() instanceof Ast.Num;
     }
 
-    private Cond leafCond(Leaf leaf) {
+    Cond leafCond(Leaf leaf) {
         Cond cond = condition(leaf.expr());
         return leaf.negated() ? cond.negated() : cond;
     }
@@ -231,27 +238,36 @@ final class Conditions {
         return out;
     }
 
+    private Cond fixed(boolean value, Span at) {
+        Data.Action action = c.data.actions().get("if_variable_equals");
+        List<Arg> args = List.of(new Arg(null, null, new Ast.Num("1", at)), new Arg(null, null, new Ast.Num(value ? "1" : "0", at)));
+        return new Cond(action.id(), c.compiler.bind(action, args, null, at), null, false);
+    }
+
     Cond condition(Expr e) {
+        Boolean known = truth(e);
+        if (known != null) return fixed(known, e.span());
         return switch (e) {
             case Ast.Unary u when u.op().equals("not") -> condition(u.operand()).negated();
             case Ast.Binary b when Wire.COMPARE.containsKey(b.op()) -> {
                 Data.Action action = c.data.actions().get(Wire.COMPARE.get(b.op()));
-                List<Arg> args = List.of(new Arg(null, null, b.left()), new Arg(null, null, b.right()));
+                Expr right = c.resolved(b.right()) instanceof Ast.ListLit l ? new Ast.ListLit(List.of(l), l.span()) : b.right();
+                List<Arg> args = List.of(new Arg(null, null, b.left()), new Arg(null, null, right));
                 yield new Cond(action.id(), c.compiler.bind(action, args, null, b.span()), null, b.op().equals("!="));
             }
             case Ast.Binary b when b.op().equals("and") || b.op().equals("or") ->
                     throw c.stop("здесь «" + b.op() + "» нельзя", b.span());
             case Ast.Binary b when b.op().equals("in") -> membership(b);
             case Ast.Var v -> flag(v);
+            case Ast.Index i -> condition(new Ast.Binary("==", i, new Ast.Num("1", i.span()), i.span()));
             case Ast.Targeted t when t.inner() instanceof Ast.Call call -> conditionCall(call, t.target(), t.targetSpan());
+            case Ast.Call call when c.userCall(call) -> condition(new Ast.Binary("==", call, new Ast.Num("1", call.span()), call.span()));
             case Ast.Call call -> conditionCall(call, null, null);
             default -> throw c.stop("условие — это сравнение (x == 1) или проверка (has_item(…))", e.span());
         };
     }
 
     private Cond flag(Ast.Var v) {
-        if (truth(v) != null)
-            throw c.stop("постоянное условие здесь не подставить", v.span(), "напиши его отдельным if или убери");
         String kind = c.kind(v);
         if (kind != null && !kind.equals(Kinds.BOOL))
             throw c.stop("«" + v.name() + "» — " + Kinds.lower(Kinds.slot(kind)) + ": условие — это сравнение", v.span(),
@@ -275,7 +291,7 @@ final class Conditions {
             return new Cond(action.id(), c.compiler.bind(action, List.of(Context.named("value", b.left()),
                     Context.named("compare", l)), null, b.span()), null, false);
         }
-        String shape = right instanceof Ast.MapLit ? "map" : right instanceof Ast.Var v ? c.shapes.get(v.name()) : null;
+        String shape = right instanceof Ast.MapLit ? "map" : right instanceof Ast.Var v ? c.shape(v.name()) : null;
         if ("list".equals(shape)) {
             Data.Action action = c.data.actions().get("if_variable_list_contains_value");
             return new Cond(action.id(), c.compiler.bind(action, List.of(Context.named("list", right),
@@ -288,7 +304,7 @@ final class Conditions {
         }
         String name = right instanceof Ast.Var v ? v.name() : "это значение";
         throw c.stop("не понятно, «" + name + "» — список или словарь", right.span(),
-                "задай его где-нибудь в коде: " + name + " = [] или " + name + " = {}");
+                "скажи это при объявлении: save " + name + ": map или save " + name + ": list");
     }
 
     private Cond conditionCall(Ast.Call call, String target, Span targetSpan) {
@@ -395,6 +411,13 @@ final class Conditions {
     }
 
     void ternary(Ast.Ternary t, Ast.Var into, List<Object> out) {
+        Boolean fixed = truth(t.condition());
+        if (fixed != null) {
+            Context.Captured<List<Object>> one = c.capture(() -> assigned(into, fixed ? t.then() : t.otherwise()));
+            out.addAll(one.pre());
+            out.addAll(one.value());
+            return;
+        }
         Tree tree = tree(t.condition(), false);
         Context.Captured<Cond> cond = c.capture(() -> branchCond(tree));
         Context.Captured<List<Object>> yes = c.capture(() -> assigned(into, t.then()));
@@ -447,8 +470,8 @@ final class Conditions {
 
     boolean conditionName(Ast.Call call) {
         if (call.quoted()) return false;
-        if (call.qualifier() == null && (Wire.CALL_WORDS.contains(call.name())
-                || c.functions.containsKey(call.name()) || c.formula.mathCall(call))) return false;
+        if (c.userCall(call)) return false;
+        if (call.qualifier() == null && (Wire.CALL_WORDS.contains(call.name()) || c.formula.mathCall(call))) return false;
         return c.names.resolve(Names.Space.ACTION, call.shown()) == null
                 && c.names.resolve(Names.Space.CONDITION, call.shown()) != null;
     }

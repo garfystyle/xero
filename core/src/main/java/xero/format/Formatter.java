@@ -69,6 +69,14 @@ public final class Formatter {
     }
 
     public static Result format(String text) {
+        try {
+            return run(text);
+        } catch (StackOverflowError e) {
+            return new Result(null, List.of(Diagnostic.error("код вложен слишком глубоко — раздели его на части", 0, 1)));
+        }
+    }
+
+    private static Result run(String text) {
         String source = text.replace("\r\n", "\n");
         List<Diagnostic> problems = new ArrayList<>();
         Ast.File file = Parser.parse(source, problems);
@@ -183,12 +191,13 @@ public final class Formatter {
         }
         List<String> items = items(body.substring(open + 1, close));
         if (items.size() < 2 && !(items.size() == 1 && widest(items.get(0)) >= 0)) return List.of(pad + body);
+        boolean grouping = grouping(body, open);
         List<String> out = new ArrayList<>();
         out.addAll(wrapped(body.substring(0, open + 1), indent));
         String inner = INDENT.repeat(indent + 1);
         StringBuilder row = new StringBuilder();
         for (String item : items) {
-            String cell = item + ",";
+            String cell = grouping ? item : item + ",";
             if (!row.isEmpty() && inner.length() + row.length() + 1 + cell.length() > WIDTH) {
                 out.add(inner + row);
                 row.setLength(0);
@@ -205,6 +214,17 @@ public final class Formatter {
         if (!row.isEmpty()) out.add(inner + row);
         out.add(pad + body.substring(close));
         return out;
+    }
+
+    private static boolean grouping(String body, int open) {
+        if (body.charAt(open) != '(') return false;
+        int end = open;
+        while (end > 0 && body.charAt(end - 1) == ' ') end--;
+        if (end < open) return true;
+        int start = end;
+        while (start > 0 && (Character.isLetterOrDigit(body.charAt(start - 1)) || body.charAt(start - 1) == '_')) start--;
+        if (start == end) return end == 0 || body.charAt(end - 1) != '`';
+        return Keywords.reserved(body.substring(start, end));
     }
 
     private static int widest(String s) {

@@ -5,6 +5,7 @@ import xero.json.Json;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -34,6 +35,8 @@ public final class Wire {
             new Builtin("enum", true, "вариант настройки как есть: enum(\"ERROR\"), привязанный к переменной: enum(\"ERROR\", x)",
                     List.of("\"ВАРИАНТ\"", "переменная")),
             new Builtin("len", true, "длина списка или словаря без блока: len(список)", List.of("список")),
+            new Builtin("literal", true, "значение как есть, сервер его не считает: literal([a, 2]), в вызове функции literal(x + 1)",
+                    List.of("значение")),
             new Builtin("call", false, "вызов функции по имени из значения: call(имя, аргумент: значение)",
                     List.of("имя", "аргумент: значение")));
 
@@ -56,6 +59,24 @@ public final class Wire {
             "select_add_player_by_conditional", "select_add_entity_by_conditional",
             "select_filter_by_conditional");
 
+    static final Set<String> IN_PLACE = Set.of(
+            "set_variable_remove_list_value", "set_variable_remove_list_value_at_index", "set_variable_insert_list_value",
+            "set_variable_set_list_value", "set_variable_remove_list_duplicates", "set_variable_trim_list",
+            "set_variable_sort_any_list", "set_variable_reverse_list", "set_variable_randomize_list_order",
+            "set_variable_flatten_list", "set_variable_set_map_value", "set_variable_put_map_value",
+            "set_variable_remove_map_entry", "set_variable_sort_any_map", "set_variable_reverse_map",
+            "set_variable_randomize_map_order");
+
+    static final String APPEND = "set_variable_append_value";
+
+    static final List<String> NOT_IN_ITEMS = List.of("click:", "hover:", "insert:", "font:", "shadow:", "lang:", "tr:", "translate:",
+            "lang_or:", "tr_or:", "translate_or:", "key:", "selector:", "sel:", "score:", "nbt:", "data:", "sprite:", "head:");
+
+    static final Set<String> LOOP_EXITS = Set.of("control_wait", "control_end_thread", "control_return_function", "control_stop_repeat");
+
+    static final List<String> PARTICLE_FIELDS = List.of("count", "first_spread", "second_spread", "x_motion", "y_motion", "z_motion",
+            "color", "to_color", "size", "material");
+
     static final Map<String, String> COMPARE = ordered(
             "==", "if_variable_equals", "!=", "if_variable_equals",
             ">", "if_variable_greater", ">=", "if_variable_greater_or_equals",
@@ -75,12 +96,17 @@ public final class Wire {
 
     static final Set<String> NO_TARGET = Set.of("Мир", "Событие");
 
+    static final Set<String> WHOLE_GRID = Set.of("player_expand_inventory_menu");
+
     static final Set<String> LOGIC = Set.of("and", "or", "in");
 
     static final String RESULT = "__xero_";
     static final String TEMP = "__xero";
     static final String NO_TRANSLATIONS = "{\"translations\":{}}";
     static final int PARAM_SLOTS = 27;
+    static final int CHEST_CELLS = 54;
+    static final int LABEL_BELOW = 9;
+    static final String EMPTY_LIST = "{\"type\":\"array\",\"values\":[]}";
 
     static String compareOp(String id) {
         for (Map.Entry<String, String> e : COMPARE.entrySet())
@@ -95,19 +121,79 @@ public final class Wire {
 
     static final String MARKER_ICON = "H4sIAAAAAAAA/+NiYGBm4HZJLEkMSy0qzszPY2AQVudgYMpMYRDNzcxLTS5KTCuxSs5PSspJLS7Jz0tlZmBNzi/NK2FgYGBkAAAxEbrgPgAAAA\\u003d\\u003d";
 
-    static Map<String, Object> markerParameter(String name, List<String> options, String fallback, int index) {
+    private static int paramSlot(int index) {
+        return (index / 9) * 18 + index % 9;
+    }
+
+    static final class ParamChest {
+        private final Set<Integer> taken = new HashSet<>();
+        private int next, paramsLeft;
+
+        ParamChest(int params) {
+            paramsLeft = params;
+        }
+
+        boolean full() {
+            while (next < PARAM_SLOTS && taken.contains(paramSlot(next))) next++;
+            return next >= PARAM_SLOTS;
+        }
+
+        int take() {
+            full();
+            int slot = paramSlot(next++);
+            taken.add(slot);
+            taken.add(slot + LABEL_BELOW);
+            paramsLeft--;
+            return slot;
+        }
+
+        List<Integer> take(int cells) {
+            List<Integer> slots = new ArrayList<>(List.of(take()));
+            while (slots.size() < cells) {
+                int cell = free();
+                if (cell < 0) return null;
+                taken.add(cell);
+                slots.add(cell);
+            }
+            return slots;
+        }
+
+        private int free() {
+            if (valueCellsLeft() > paramsLeft) {
+                full();
+                return paramSlot(next);
+            }
+            for (int cell = LABEL_BELOW; cell < CHEST_CELLS; cell++)
+                if (!taken.contains(cell) && taken.contains(cell - LABEL_BELOW) && cell / LABEL_BELOW % 2 == 1) return cell;
+            return -1;
+        }
+
+        private int valueCellsLeft() {
+            int left = 0;
+            for (int i = next; i < PARAM_SLOTS; i++) if (!taken.contains(paramSlot(i))) left++;
+            return left;
+        }
+    }
+
+    static Map<String, Object> markerParameter(String name, List<String> options, String fallback, int slot, String about) {
         List<Object> elements = new ArrayList<>();
         for (String o : options)
             elements.add("{\"name\":" + Json.write(o) + ",\"display_name\":{\"translations\":{}},\"icon\":\"" + MARKER_ICON + "\"}");
-        return Context.obj("type", "parameter", "type_key", "enum", "description", NO_TRANSLATIONS, "name", name,
-                "slot", (index / 9) * 18 + index % 9, "elements", Json.write(elements), "default_element", fallback);
+        return Context.obj("type", "parameter", "type_key", "enum", "description", about, "name", name,
+                "slot", slot, "elements", Json.write(elements), "default_element", fallback);
     }
 
-    static Map<String, Object> parameter(String name, String type, boolean required, String fallback, int index) {
-        int slot = (index / 9) * 18 + index % 9;
-        return Context.obj("type", "parameter", "type_key", "singular", "description", NO_TRANSLATIONS,
+    static Map<String, Object> parameter(String name, String type, boolean required, String fallback, int slot, String about) {
+        return Context.obj("type", "parameter", "type_key", "singular", "description", about,
                 "name", name, "value_type", type, "is_required", required ? "true" : "false",
-                "default_value", fallback, "slot", slot, "description_slot", slot + 9);
+                "default_value", fallback, "slot", slot, "description_slot", slot + LABEL_BELOW);
+    }
+
+    static Map<String, Object> pluralParameter(String name, String type, boolean required, String fallback, List<Integer> slots, String about) {
+        return Context.obj("type", "parameter", "type_key", "plural", "description", about,
+                "name", name, "value_type", type, "is_required", required ? "true" : "false", "ignore_empty_values", "true",
+                "default_value", fallback, "slots", slots.toString().replace(" ", ""),
+                "description_slots", slots.isEmpty() ? "[]" : "[" + (slots.get(0) + LABEL_BELOW) + "]");
     }
 
     static boolean sameInAnyMarkup(String text) {
@@ -116,6 +202,56 @@ public final class Wire {
 
     static boolean hole(Object v) {
         return v instanceof Map<?, ?> m && m.isEmpty();
+    }
+
+    static boolean dynamic(Object v) {
+        if (!(v instanceof Map<?, ?> m) || !(m.get("type") instanceof String type)) return false;
+        return switch (type) {
+            case "variable", "game_value" -> true;
+            case "text" -> m.get("text") instanceof String t && t.indexOf('%') >= 0;
+            case "number" -> m.get("number") instanceof String s && s.indexOf('%') >= 0;
+            case "array" -> m.get("values") instanceof List<?> cells && cells.stream().anyMatch(Wire::dynamic);
+            case "map" -> m.get("values") instanceof Map<?, ?> entries
+                    && (entries.values().stream().anyMatch(Wire::dynamic) || entries.keySet().stream().anyMatch(Wire::dynamicKey));
+            default -> false;
+        };
+    }
+
+    static boolean plainNumber(String s) {
+        int i = s.startsWith("-") ? 1 : 0, digits = 0, dots = 0;
+        for (; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= '0' && c <= '9') digits++;
+            else if (c == '.' && digits > 0 && dots++ == 0 && i + 1 < s.length()) continue;
+            else return false;
+        }
+        return digits > 0;
+    }
+
+    static boolean lazy(Object v) {
+        if (!(v instanceof Map<?, ?> m) || !(m.get("type") instanceof String type)) return false;
+        return switch (type) {
+            case "number" -> m.get("number") instanceof String s && s.indexOf('%') >= 0;
+            case "text" -> m.get("text") instanceof String t && placeholder(t);
+            default -> false;
+        };
+    }
+
+    private static boolean placeholder(String text) {
+        for (int at = text.indexOf('%'); at >= 0; at = text.indexOf('%', at + 1)) {
+            int i = at + 1;
+            while (i < text.length() && (Character.isLetterOrDigit(text.charAt(i)) || text.charAt(i) == '_')) i++;
+            if (i > at + 1 && i < text.length() && (text.charAt(i) == '%' || text.charAt(i) == '(')) return true;
+        }
+        return false;
+    }
+
+    private static boolean dynamicKey(Object key) {
+        try {
+            return dynamic(Json.parse(String.valueOf(key)));
+        } catch (Json.Error e) {
+            return false;
+        }
     }
 
     static List<Object> tidy(Data.Action action, List<Object> values) {
@@ -127,17 +263,37 @@ public final class Wire {
             }
             Object v = m.get("value");
             if (hole(v)) continue;
+            boolean known = action.arg(name) != null, slotted = known && action.arg(name).slotted();
+            if (known && !action.plural(name) && emptyItem(v)) continue;
+            if (byDefault(action.setting(name), v)) continue;
             List<Object> cells = action.plural(name) ? cells(v) : null;
             if (cells == null) {
                 out.add(raw);
                 continue;
             }
             int size = cells.size();
+            boolean holes = false;
+            if (known && !slotted)
+                for (int i = 0; i < cells.size(); i++)
+                    if (emptyItem(cells.get(i))) {
+                        cells.set(i, new LinkedHashMap<String, Object>());
+                        holes = true;
+                    }
             trim(cells);
+            if (slotted) trimEmptyItems(cells);
             if (cells.isEmpty()) continue;
-            out.add(cells.size() == size ? raw : Context.entry(name, Context.array(cells)));
+            out.add(cells.size() == size && !holes ? raw : Context.entry(name, Context.array(cells)));
         }
         return out;
+    }
+
+    private static boolean byDefault(Data.Setting s, Object v) {
+        return s != null && v instanceof Map<?, ?> m && m.size() == 2 && m.get("enum") instanceof String option
+                && option.equalsIgnoreCase(s.fallback());
+    }
+
+    static boolean emptyItem(Object v) {
+        return v instanceof Map<?, ?> m && "item".equals(m.get("type")) && Items.EMPTY.equals(m.get("item"));
     }
 
     static List<Object> tidyDeclaration(List<Object> values) {
@@ -165,6 +321,11 @@ public final class Wire {
         if (v instanceof Map<?, ?> m && m.size() == 2 && "array".equals(m.get("type")) && m.get("values") instanceof List<?> l)
             return new ArrayList<>(l);
         return null;
+    }
+
+    private static void trimEmptyItems(List<Object> cells) {
+        while (!cells.isEmpty() && cells.get(cells.size() - 1) instanceof Map<?, ?> m && Items.EMPTY.equals(m.get("item")))
+            cells.remove(cells.size() - 1);
     }
 
     private static void trim(List<Object> cells) {

@@ -39,6 +39,7 @@ class DeliverTest {
     private Net.Link savedLink;
     private Game.Link savedGame;
     private final List<String> sentToGame = new ArrayList<>();
+    private boolean linesFail;
 
     @BeforeEach
     void fake() {
@@ -77,8 +78,9 @@ class DeliverTest {
             }
 
             @Override
-            public List<String> lines(String lines) {
+            public List<String> lines(String lines) throws IOException {
                 sentToGame.add("lines " + lines);
+                if (linesFail) throw new Game.Failed("строка 1: не дошёл до строки — она не тронута");
                 return List.of("строка на месте");
             }
 
@@ -165,6 +167,30 @@ class DeliverTest {
         Watch.send(smaller, Project.compile(smaller), "");
         assertEquals(1, sentToGame.size());
         assertTrue(said().contains("замена сотрёт"), this::said);
+    }
+
+    @Test
+    void failedLinesFallBackToTheWholeUpload() throws IOException {
+        Path src = write("main.xero", "func a() { send_message(\"1\") }\nfunc b() { send_message(\"2\") }\n");
+        assertEquals(0, run("upload", src.toString(), "--game"), this::said);
+        write("main.xero", "func a() { send_message(\"1\") }\nfunc b() { send_message(\"3\") }\n");
+        linesFail = true;
+        assertEquals(0, run("upload", src.toString(), "--game"), this::said);
+        assertEquals(3, sentToGame.size(), sentToGame::toString);
+        assertTrue(sentToGame.get(1).startsWith("lines "), sentToGame.get(1));
+        assertTrue(sentToGame.get(2).startsWith("replace "), sentToGame.get(2));
+        assertTrue(said().contains("Построчно не вышло"), this::said);
+        assertTrue(sentToGame.get(2).contains("\"3\""), sentToGame.get(2));
+    }
+
+    @Test
+    void tooWideLineGoesWhole() throws IOException {
+        Path src = write("main.xero", "func a() { send_message(\"1\") }\n");
+        assertEquals(0, run("upload", src.toString(), "--game"), this::said);
+        write("main.xero", "func a() {\n" + "    send_message(\"1\")\n".repeat(44) + "}\n");
+        assertEquals(0, run("upload", src.toString(), "--game"), this::said);
+        assertEquals(2, sentToGame.size(), sentToGame::toString);
+        assertTrue(sentToGame.get(1).startsWith("replace "), sentToGame.get(1));
     }
 
     @Test

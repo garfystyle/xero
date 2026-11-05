@@ -161,7 +161,9 @@ public final class Json {
                 case 't' -> literal("true", Boolean.TRUE);
                 case 'f' -> literal("false", Boolean.FALSE);
                 case 'n' -> literal("null", null);
+                case 'I', 'N' -> notFinite();
                 default -> {
+                    if (c == '-' && text.startsWith("-Infinity", pos)) yield notFinite();
                     if (c == '-' || (c >= '0' && c <= '9')) yield number();
                     throw new Error("неожиданный символ «" + c + "»", pos);
                 }
@@ -248,6 +250,15 @@ public final class Json {
                 digits(start);
             }
             return new Num(text.substring(start, pos));
+        }
+
+        private Num notFinite() {
+            for (String word : List.of("-Infinity", "Infinity", "NaN")) {
+                if (!text.startsWith(word, pos)) continue;
+                pos += word.length();
+                return new Num(word);
+            }
+            throw new Error("неожиданный символ «" + peek() + "»", pos);
         }
 
         private void digits(int start) {

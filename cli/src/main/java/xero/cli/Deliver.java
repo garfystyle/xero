@@ -125,12 +125,16 @@ final class Deliver {
                     }
                     Map<String, Object> wrapped = new java.util.LinkedHashMap<>();
                     wrapped.put("lines", rows);
-                    Game.link.lines(Json.write(wrapped));
-                    OUT.println("Заменено строк: " + rows.size() + ", мир не перезапускался.");
-                    snap.replaced(Json.array(module.get("handlers")));
-                    snap.save();
-                    connect(connected, true);
-                    return 0;
+                    try {
+                        Game.link.lines(Json.write(wrapped));
+                        OUT.println("Заменено строк: " + rows.size() + ", мир не перезапускался.");
+                        snap.replaced(Json.array(module.get("handlers")));
+                        snap.save();
+                        connect(connected, true);
+                        return 0;
+                    } catch (Game.Failed e) {
+                        OUT.println("Построчно не вышло (" + e.getMessage() + "), заливаю целиком.");
+                    }
                 }
                 sent = Game.link.upload(body, replace);
                 connect(connected, true);

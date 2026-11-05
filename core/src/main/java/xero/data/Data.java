@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.Set;
 
 public final class Data {
-    public record Setting(String id, int index, Map<String, String> options, String label) {}
+    public record Setting(String id, int index, Map<String, String> options, String label, String fallback) {}
 
     public record Arg(String id, String kind, String label, boolean list, int capacity,
                       boolean slotted) {}
@@ -83,6 +83,7 @@ public final class Data {
     private Pickers pickers = new Pickers(Set.of(), Map.of(), Set.of());
     private Minecraft minecraft = new Minecraft(Set.of(), Set.of(), Set.of(), Map.of());
     private Placeholders placeholders = new Placeholders(Set.of(), Set.of());
+    private Map<String, String> returns = Map.of();
 
     private Data(Map<String, Action> actions, Map<String, Event> events,
                  Map<String, GameValue> gameValues, Map<String, List<Selector>> selectors,
@@ -100,8 +101,10 @@ public final class Data {
 
     public static synchronized Data load() {
         if (cached != null) return cached;
-        Data data = parse(resource("mapping.json"), resource("values.json"), resource("catalog.json"));
-        data.pickers = pickers(Json.object(Json.parse(resource("pickers.json"))));
+        Map<String, Object> extra = extra();
+        Data data = parse(withExtra(resource("mapping.json"), extra), resource("values.json"), resource("catalog.json"));
+        data.pickers = pickers(Json.object(Json.parse(resource("pickers.json"))), extra);
+        data.returns = returns(extra);
         Map<String, Object> mc = Json.object(Json.parse(resource("minecraft.json")));
         data.minecraft = new Minecraft(strings(mc.get("items")), strings(mc.get("blocks")),
                 strings(mc.get("enchantments")), components(mc.get("components"),
@@ -122,6 +125,26 @@ public final class Data {
     public Minecraft minecraft() { return minecraft; }
     public Placeholders placeholders() { return placeholders; }
 
+    public String returned(Action action) {
+        String kind = returns.get(action.id());
+        return kind != null ? kind : returns.get(action.canonical());
+    }
+
+    public String returned(Action action, Arg arg) {
+        String own = returns.get(action.id() + "." + arg.id());
+        if (own != null) return own;
+        return arg.equals(action.result()) ? returned(action) : null;
+    }
+
+    private static Map<String, String> returns(Map<String, Object> extra) {
+        if (extra.get("returns") == null) return Map.of();
+        Map<String, String> out = new LinkedHashMap<>();
+        Json.object(extra.get("returns")).forEach((kind, ids) -> {
+            for (Object id : Json.array(ids)) out.put(Json.string(id), kind);
+        });
+        return Collections.unmodifiableMap(out);
+    }
+
     private static Set<String> strings(Object raw) {
         Set<String> out = new LinkedHashSet<>();
         for (Object o : Json.array(raw)) out.add(Json.string(o));
@@ -141,10 +164,32 @@ public final class Data {
         return Collections.unmodifiableMap(out);
     }
 
-    private static Pickers pickers(Map<String, Object> root) {
+    private static Map<String, Object> extra() {
+        try (InputStream in = Data.class.getResourceAsStream(ROOT + "extra.json")) {
+            if (in == null) return Map.of();
+            return Json.object(Json.parse(new String(in.readAllBytes(), StandardCharsets.UTF_8)));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String withExtra(String mappingJson, Map<String, Object> extra) {
+        if (extra.isEmpty()) return mappingJson;
+        Map<String, Object> mapping = Json.object(Json.parse(mappingJson));
+        Map<String, Object> events = Json.object(mapping.get("events")), actions = Json.object(mapping.get("actions"));
+        events.putAll(Json.object(extra.get("events")));
+        actions.putAll(Json.object(extra.get("actions")));
+        Map<String, Object> meta = Json.object(mapping.get("meta"));
+        meta.put("actions", new Json.Num(Integer.toString(actions.size())));
+        meta.put("events", new Json.Num(Integer.toString(events.size())));
+        return Json.write(mapping);
+    }
+
+    private static Pickers pickers(Map<String, Object> root, Map<String, Object> extra) {
         Set<String> sounds = new LinkedHashSet<>();
         for (Object group : Json.array(root.get("sounds")))
             for (Object s : Json.array(Json.object(group).get("v"))) sounds.add(Json.string(s));
+        if (extra.get("sounds") != null) for (Object s : Json.array(extra.get("sounds"))) sounds.add(Json.string(s));
         Map<String, List<String>> particles = new LinkedHashMap<>();
         for (Object raw : Json.array(root.get("particles"))) {
             Map<String, Object> p = Json.object(raw);
@@ -181,7 +226,7 @@ public final class Data {
                     args(o.get("a"), entry, SLOTTED.get(key)),
                     settings(o.get("s"), entry), plural(o.get("p")),
                     o.get("t") instanceof String t ? t : family(category),
-                    o.containsKey("c"), sub, canonical.get(id), entry == null ? "" : text(entry.get("d"))));
+                    o.containsKey("c") || category == Category.CONTROLLER, sub, canonical.get(id), entry == null ? "" : text(entry.get("d"))));
         });
 
         Map<String, Event> events = new LinkedHashMap<>();
@@ -328,8 +373,11 @@ public final class Data {
             Map<String, String> options = new LinkedHashMap<>();
             Json.object(o.get("e")).forEach((option, label) -> options.put(option, Json.string(label)));
             int index = ((Json.Num) o.get("i")).intValue();
-            String label = index >= 0 && index < info.size() ? text(Json.object(info.get(index)).get("l")) : "";
-            out.add(new Setting(id, index, Collections.unmodifiableMap(options), label));
+            Map<String, Object> shown = index >= 0 && index < info.size() ? Json.object(info.get(index)) : Map.of();
+            String fallback = options.isEmpty() ? "" : options.keySet().iterator().next();
+            for (Map.Entry<String, String> option : options.entrySet())
+                if (option.getValue().equals(text(shown.get("d")))) fallback = option.getKey();
+            out.add(new Setting(id, index, Collections.unmodifiableMap(options), text(shown.get("l")), fallback));
         });
         out.sort((x, y) -> Integer.compare(x.index(), y.index()));
         return Collections.unmodifiableList(out);

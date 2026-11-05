@@ -245,8 +245,7 @@ public final class Ink {
             int from = i;
             while (i < n && wordPart(t.charAt(i))) i++;
             int first = i;
-            if (i < n && i - from == 1 && s.prefixes().indexOf(t.charAt(from)) >= 0
-                    && s.quotes().indexOf(t.charAt(i)) >= 0) {
+            if (i < n && s.quotes().indexOf(t.charAt(i)) >= 0 && s.stringPrefix(t.substring(from, i))) {
                 paint(from, i, ESCAPE);
                 return;
             }

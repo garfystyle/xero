@@ -72,7 +72,7 @@ public final class JmccDialect extends Dialect {
             literals.addAll(Words.FALSE);
             syntax = Syntax.of(Words.keywords()).literals(literals).types(Words.types())
                     .comments("//", "#", "/*", "*/", true)
-                    .strings("\"'", "lmpj", true, true).backtick("g s l i j b game save local line inline jmcc bracket")
+                    .strings("\"'", "l m p j mm plain legacy json minimessage простой устаревший минисообщение джсон", true, true).backtick("g s l i j b game save local line inline jmcc bracket")
                     .joiner("::").decorator('@').build();
         }
         return syntax;
@@ -91,7 +91,7 @@ public final class JmccDialect extends Dialect {
 
     @Override
     public Decompiled decompile(Map<String, Object> module) {
-        Decompiler.Result r = Decompiler.decompile(service.data(), service.names(), module);
+        Decompiler.Result r = Decompiler.forDialect(service.data(), service.names(), module);
         List<Diagnostic> diagnostics = new ArrayList<>();
         Ast.File file = Parser.parse(r.text(), diagnostics);
         List<String> notes = new ArrayList<>(r.notes());

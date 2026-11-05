@@ -54,11 +54,12 @@ public final class Service {
 
     public record Mark(int start, int end, String scope) {}
 
-    private enum Role { FUNC_DECL, FUNC_CALL, VAR, EVENT, VALUE, ACTION, ARG, TARGET }
+    private enum Role { FUNC_DECL, FUNC_CALL, VAR, EVENT, VALUE, ACTION, ARG, TARGET, OPTION }
 
     private record Occ(Role role, String name, int start, int end, Data.Action action, Ast.Func func) {}
 
     private static final int LIMIT = 150;
+    private static final String OPTION_MARK = "option";
 
     private static final String BODY = " {\n\t$0\n}";
     private static final String AGAIN = "↻";
@@ -132,6 +133,8 @@ public final class Service {
     private final Names names;
     private final List<Item> actions = new ArrayList<>();
     private final List<Item> conditions = new ArrayList<>();
+    private final Map<String, List<Item>> actionsOf = new LinkedHashMap<>();
+    private final Map<String, List<Item>> conditionsOf = new LinkedHashMap<>();
     private final List<Item> events = new ArrayList<>();
     private final List<Item> values = new ArrayList<>();
     private final List<Item> targets = new ArrayList<>();
@@ -148,7 +151,10 @@ public final class Service {
             String label = e.bare() ? e.name() : e.qualified();
             Item item = withSnippet(new Item(label, e.space() == Names.Space.CONDITION ? "condition" : "action",
                     e.action().label() + " · " + e.action().category().russian, actionDoc(e), true, 0), e.action());
-            (e.space() == Names.Space.CONDITION ? conditions : actions).add(item);
+            boolean condition = e.space() == Names.Space.CONDITION;
+            (condition ? conditions : actions).add(item);
+            if (e.action().family() != null)
+                (condition ? conditionsOf : actionsOf).computeIfAbsent(e.action().family(), k -> new ArrayList<>()).add(item);
         }
         for (Data.Event ev : data.events().values())
             events.add(new Item(ev.id(), "event", ev.label() + " · " + ev.group(), eventDoc(ev), false, 0));
@@ -260,6 +266,11 @@ public final class Service {
             int i = 0;
             for (Ast.Arg a : c.args()) {
                 if (a.name() != null) continue;
+                Data.Setting word = w.words.get(a.value().span().start());
+                if (word != null) {
+                    out.add(new Hint(a.value().span().start(), word.id() + ":"));
+                    continue;
+                }
                 if (i >= names.size()) break;
                 String name = names.get(i++);
                 if (a.value() instanceof Ast.Var v && v.name().equals(name)) continue;
@@ -290,6 +301,7 @@ public final class Service {
         Walk w = analysis(text).walk();
         List<Mark> out = new ArrayList<>();
         for (Occ o : w.occs) {
+            if (o.role() == Role.OPTION) out.add(new Mark(o.start(), o.end(), OPTION_MARK));
             if (o.role() != Role.VAR) continue;
             String scope = w.pinned.get(o.start());
             if (scope == null) scope = w.scopes.getOrDefault(o.name(), "local");
@@ -310,7 +322,17 @@ public final class Service {
             case VALUE -> data.gameValues().containsKey(o.name()) ? valueDoc(data.gameValues().get(o.name())) : null;
             case ARG -> argDoc(o.action(), o.name());
             case TARGET -> targetLabels.containsKey(o.name()) ? "Цель `@" + o.name() + "`: **" + targetLabels.get(o.name()) + "**" : null;
+            case OPTION -> optionDoc(o);
         };
+    }
+
+    private static String optionDoc(Occ o) {
+        String word = o.name().toLowerCase(Locale.ROOT);
+        for (Data.Setting s : o.action().settings()) {
+            String label = s.options().get(word);
+            if (label != null) return s.label() + ": **" + label + "**";
+        }
+        return null;
     }
 
     public Span definition(String text, int offset) {
@@ -456,6 +478,9 @@ public final class Service {
             boolean top = depth == 0 && (second == null || newlineBetween(text, second.end(), last.start()));
             return finish(prefix, top ? table(DECORATORS, "decorator") : targets);
         }
+        if (depth > 0 && last != null && last.kind() == Token.Kind.IDENT && second != null && second.is("@")
+                && !newlineBetween(text, last.end(), from))
+            return finish(prefix, afterTarget(text, before, open, last.text()));
         if (last != null && last.keyword("when")) {
             int eol = text.indexOf('\n', offset);
             boolean alone = text.substring(offset, eol < 0 ? text.length() : eol).isBlank();
@@ -489,18 +514,54 @@ public final class Service {
             out.addAll(expression(a, from));
             return finish(prefix, out);
         }
+        Data.Action called = open == null || open.callee() == null ? null : data.actions().get(open.action());
+        List<Item> words = called == null || open.named() != null ? List.of() : words(called, open);
+        if (!words.isEmpty() && open.args() >= slots(called, open.assigned())) {
+            List<Item> only = new ArrayList<>(words);
+            for (Data.Setting s : called.settings())
+                if (!open.given().contains(s.id())) only.add(new Item(s.id(), "field", s.label(), argDoc(called, s.id()), false, 0));
+            return finish(prefix, only);
+        }
         List<Item> out = expression(a, from);
         if (open != null && "item".equals(open.callee()) && open.args() > 0)
             ITEM_FIELDS.forEach((k, v) -> out.add(0, new Item(k, "field", v, null, false, 0)));
-        if (open != null && open.callee() != null && data.actions().get(open.action()) != null) {
-            Data.Action action = data.actions().get(open.action());
-            for (Data.Arg arg : action.args())
-                out.add(new Item(arg.id(), "field", label(arg), argDoc(action, arg.id()), false, 0));
-            for (Data.Setting s : action.settings())
-                out.add(new Item(s.id(), "field", s.label(), argDoc(action, s.id()), false, 0));
+        if (called != null) {
+            for (Data.Arg arg : called.args())
+                out.add(new Item(arg.id(), "field", label(arg), argDoc(called, arg.id()), false, 0));
+            for (Data.Setting s : called.settings())
+                out.add(new Item(s.id(), "field", s.label(), argDoc(called, s.id()), false, 0));
+            out.addAll(words);
         }
         if (last != null && (last.is("=") || last.is("+=") || last.is("-=") || last.is("*=") || last.is("/="))) out.addAll(actions);
         return finish(prefix, out);
+    }
+
+    private List<Item> afterTarget(String text, List<Token> before, Open open, String target) {
+        Token head = before.size() < 3 ? null : before.get(before.size() - 3);
+        boolean condition = head != null && (head.keyword("if", "while", "and", "or", "not")
+                || head.is("(") && open != null && open.callee() == null);
+        boolean statement = open == null && (head == null || head.is("{") || head.is("}") || head.is(";")
+                || newlineBetween(text, head.end(), before.get(before.size() - 2).start()));
+        List<Item> out = new ArrayList<>();
+        (condition ? conditionsOf : actionsOf).forEach((family, items) -> {
+            if (names.selectors(family).containsKey(target)) out.addAll(items);
+        });
+        if (out.isEmpty()) out.addAll(condition ? conditions : actions);
+        if (!statement) out.add(0, new Item("value", "keyword", "игровое значение: value.current_health", null, false, 0));
+        return out;
+    }
+
+    private static int slots(Data.Action action, boolean assigned) {
+        return action.args().size() - (assigned && action.result() != null ? 1 : 0);
+    }
+
+    private static List<Item> words(Data.Action action, Open open) {
+        List<Item> out = new ArrayList<>();
+        for (Data.Setting s : action.settings()) {
+            if (open.given().contains(s.id()) || s.options().keySet().stream().anyMatch(open.given()::contains)) continue;
+            s.options().forEach((id, label) -> out.add(new Item(id, "enum", label, s.label() + ": **" + label + "**", false, 0)));
+        }
+        return out;
     }
 
     private static String qualified(List<Token> before) {
@@ -513,7 +574,8 @@ public final class Service {
         return out;
     }
 
-    private record Open(Token bracket, String callee, String action, int args, boolean assigned, String named) {}
+    private record Open(Token bracket, String callee, String action, int args, boolean assigned, String named,
+                        Set<String> given) {}
 
     private static List<Integer> unclosed(List<Token> before) {
         List<Integer> stack = new ArrayList<>();
@@ -549,7 +611,7 @@ public final class Service {
 
     private Open open(List<Token> before, int at) {
         Token bracket = before.get(at);
-        Open none = new Open(bracket, null, null, 0, false, null);
+        Open none = new Open(bracket, null, null, 0, false, null, Set.of());
         if (!bracket.is("(") || at == 0) return none;
         Token name = before.get(at - 1);
         if (name.kind() != Token.Kind.IDENT && name.kind() != Token.Kind.NAME) return none;
@@ -564,11 +626,14 @@ public final class Service {
         if (head >= 2 && before.get(head - 1).kind() == Token.Kind.IDENT && before.get(head - 2).is("@")) head -= 2;
         boolean assigned = head >= 1 && before.get(head - 1).is("=");
         int index = 0, nested = 0, segment = at + 1;
+        Set<String> given = new LinkedHashSet<>();
         for (int i = at + 1; i < before.size(); i++) {
             Token t = before.get(i);
             if (t.is("(") || t.is("[") || t.is("{")) nested++;
             else if (t.is(")") || t.is("]") || t.is("}")) nested--;
+            else if (t.is(":") && nested == 0 && i == segment + 1) given.add(before.get(segment).text().toLowerCase(Locale.ROOT));
             else if (t.is(",") && nested == 0) {
+                if (i == segment + 1) given.add(before.get(segment).text().toLowerCase(Locale.ROOT));
                 index++;
                 segment = i + 1;
             }
@@ -577,7 +642,7 @@ public final class Service {
                 && before.get(segment + 1).is(":") ? before.get(segment).text() : null;
         Names.Entry e = names.resolve(Names.Space.ACTION, callee);
         if (e == null) e = names.resolve(Names.Space.CONDITION, callee);
-        return new Open(bracket, callee, e == null ? null : e.action().id(), index, assigned, named);
+        return new Open(bracket, callee, e == null ? null : e.action().id(), index, assigned, named, given);
     }
 
     private static boolean enchantmentsAt(List<Token> before) {
@@ -667,9 +732,14 @@ public final class Service {
         return out;
     }
 
+    private static String label(Ast.Param p) {
+        String type = p.type() == null ? "" : ": " + p.type() + (p.many() ? "[" + p.cells() + "]" : "");
+        return Keywords.name(p.name()) + type;
+    }
+
     private static String importedDoc(Ast.Func f) {
         List<String> params = new ArrayList<>();
-        for (Ast.Param p : f.params()) params.add(p.name() + (p.type() == null ? "" : ": " + p.type()));
+        for (Ast.Param p : f.params()) params.add(label(p));
         return "```xero\n" + (f.process() ? "process " : "func ") + Keywords.function(f.name()) + "(" + String.join(", ", params)
                 + ")\n```\nИз подключённого модуля.";
     }
@@ -779,6 +849,9 @@ public final class Service {
         final List<Ast.Call> calls = new ArrayList<>();
         final Set<Ast.Call> assigned = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
         final Map<Integer, String> pinned = new LinkedHashMap<>();
+        final Map<Integer, Data.Setting> words = new LinkedHashMap<>();
+        final Set<Occ> reads = new LinkedHashSet<>();
+        final Set<Occ> guessed = new LinkedHashSet<>();
         String text;
     }
 
@@ -818,7 +891,45 @@ public final class Service {
         }
         w.occs.sort(Comparator.comparingInt(Occ::start));
         if (project) shared.forEach(w.scopes::putIfAbsent);
+        settle(w, project);
         return w;
+    }
+
+    private void settle(Walk w, boolean project) {
+        Set<String> written = new LinkedHashSet<>();
+        for (Occ o : w.occs) if (o.role() == Role.VAR && !w.reads.contains(o)) written.add(o.name());
+        if (project) written.addAll(shared.keySet());
+        w.occs.replaceAll(o -> {
+            if (o.role() != Role.OPTION) return o;
+            boolean variable = "const".equals(w.scopes.get(o.name())) || w.guessed.contains(o) && written.contains(o.name());
+            if (!variable) return o;
+            w.words.remove(o.start());
+            return new Occ(Role.VAR, o.name(), o.start(), o.end(), null, null);
+        });
+    }
+
+    private void markers(Walk w, Ast.Call c, Data.Action action, Map<Ast.Arg, Boolean> out) {
+        List<Data.Setting> settings = action.settings();
+        int slots = slots(action, w.assigned.contains(c));
+        Set<String> taken = new LinkedHashSet<>();
+        int positional = 0;
+        for (Ast.Arg a : c.args()) {
+            Data.Setting s;
+            boolean guess = false;
+            if (a.name() != null) {
+                s = action.setting(a.name().toLowerCase(Locale.ROOT));
+            } else {
+                s = Compiler.wordFor(a.value(), settings, taken, name -> false);
+                guess = s != null && positional < slots;
+                if (s == null && positional >= slots && positional - slots < settings.size()) s = settings.get(positional - slots);
+                if (!guess) positional++;
+            }
+            if (s == null) continue;
+            taken.add(s.id());
+            if (!(a.value() instanceof Ast.Var v) || v.quoted() || v.scope() != null) continue;
+            if (a.name() == null) w.words.put(v.span().start(), s);
+            out.put(a, guess);
+        }
     }
 
     private static Token lastToken(String text, Ast.Span span) {
@@ -912,7 +1023,9 @@ public final class Service {
             }
             case Ast.Var v -> {
                 int start = v.span().start() + (v.scope() == null ? 0 : v.scope().length() + 1);
-                w.occs.add(new Occ(Role.VAR, v.name(), start, v.span().end(), null, null));
+                Occ read = new Occ(Role.VAR, v.name(), start, v.span().end(), null, null);
+                w.occs.add(read);
+                w.reads.add(read);
                 if (v.scope() != null) w.pinned.put(start, v.scope());
             }
             case Ast.ListLit l -> { for (Ast.Expr x : l.items()) expr(w, x, false); }
@@ -935,9 +1048,18 @@ public final class Service {
                     }
                 }
                 boolean item = c.qualifier() == null && !c.quoted() && c.name().equals("item");
+                Map<Ast.Arg, Boolean> marked = new java.util.IdentityHashMap<>();
+                if (action != null) markers(w, c, action, marked);
                 for (Ast.Arg a : c.args()) {
                     if (a.name() != null && action != null && a.nameSpan() != null)
                         w.occs.add(new Occ(Role.ARG, a.name(), a.nameSpan().start(), a.nameSpan().end(), action, null));
+                    Boolean guess = marked.get(a);
+                    if (guess != null) {
+                        Occ word = new Occ(Role.OPTION, ((Ast.Var) a.value()).name(), a.value().span().start(), a.value().span().end(), action, null);
+                        w.occs.add(word);
+                        if (guess) w.guessed.add(word);
+                        continue;
+                    }
                     if (item && a.value() instanceof Ast.MapLit m) {
                         for (Ast.Expr x : m.values()) expr(w, x, false);
                         continue;
@@ -1085,8 +1207,9 @@ public final class Service {
             doc = factory.doc();
         } else if (func != null) {
             for (Ast.Param p : func.params()) {
-                params.add(p.name() + (p.type() == null ? "" : ": " + p.type())
-                        + (p.fallback() == null || declared(func) != null ? "" : " = " + text.substring(p.fallback().span().start(), p.fallback().span().end())));
+                params.add(label(p)
+                        + (p.fallback() == null || declared(func) != null ? "" : " = " + text.substring(p.fallback().span().start(), p.fallback().span().end()))
+                        + (p.about() == null ? "" : " — " + p.about().text()));
                 keys.add(p.name());
             }
             doc = (func.process() ? "процесс" : "функция") + (module(func) ? " из модуля" : declared(func) != null ? " из другого файла" : " в этом файле");

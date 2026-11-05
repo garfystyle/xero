@@ -34,7 +34,7 @@ final class Printer {
             "select_filter_by_conditional");
     private static final Set<String> START_SETTINGS = Set.of("local_variables_mode", "target_mode");
     private static final Set<String> FACTORIES = Set.of("loc", "vec", "num", "item", "block", "sound", "particle",
-            "potion", "raw", "enum", "len", "call");
+            "potion", "raw", "enum", "len", "call", "literal");
     private static final Set<String> IDENTIFIED = Set.of("num", "item", "block", "sound", "particle", "potion", "raw", "enum");
     private static final Map<String, String> TYPES = Map.of("vector", "vec3", "vec", "vec3", "loc", "location",
             "map", "dict", "list", "array");

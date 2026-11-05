@@ -112,6 +112,7 @@ public final class Styled {
         List<Run> out = new ArrayList<>();
         StringBuilder buf = new StringBuilder();
         Deque<Style> stack = new ArrayDeque<>();
+        Deque<String> names = new ArrayDeque<>();
         Style style = Style.NONE;
         int i = 0;
         while (i < s.length()) {
@@ -144,18 +145,25 @@ public final class Styled {
                 continue;
             }
             Style applied = tag(style, body);
-            if (applied == null) {
+            if (applied == null || closing && !names.contains(name)) {
                 buf.append(s, i, close + 1);
                 i = close + 1;
                 continue;
             }
             push(out, buf, style);
-            if (closing) style = stack.isEmpty() ? Style.NONE : stack.pop();
-            else if (name.equals("reset")) {
+            if (closing) {
+                while (!names.isEmpty()) {
+                    String open = names.pop();
+                    style = stack.pop();
+                    if (open.equals(name)) break;
+                }
+            } else if (name.equals("reset")) {
                 stack.clear();
+                names.clear();
                 style = Style.NONE;
             } else {
                 stack.push(style);
+                names.push(name);
                 style = applied;
             }
             i = close + 1;
@@ -204,12 +212,14 @@ public final class Styled {
             String h = hex(name);
             return h == null ? null : style.color(h);
         }
+        if (name.equals("transition")) return style.color(hexOf(transition(body)));
         if (name.equals("color") || name.equals("colour") || name.equals("c")) {
             if (!body.contains(":")) return null;
             String c = color(body.substring(body.indexOf(':') + 1));
             return c == null ? null : style.color(c);
         }
-        if (COLORS.contains(name)) return style.color(name);
+        String named = name.replace("grey", "gray");
+        if (COLORS.contains(named)) return style.color(named);
         Boolean on = off ? Boolean.FALSE : Boolean.TRUE;
         return switch (name) {
             case "bold", "b" -> style.with("bold", on);
@@ -223,7 +233,66 @@ public final class Styled {
 
     private static String color(String name) {
         if (name.startsWith("#")) return hex(name);
-        return COLORS.contains(name) ? name : null;
+        String named = name.replace("grey", "gray");
+        return COLORS.contains(named) ? named : null;
+    }
+
+    private static String hexOf(int color) {
+        return "#" + Integer.toHexString(0x1000000 | color).substring(1).toUpperCase(Locale.ROOT);
+    }
+
+    private static List<String> parts(String body) {
+        List<String> args = new ArrayList<>();
+        int colon = body.indexOf(':');
+        if (colon >= 0) for (String a : body.substring(colon + 1).split(":")) args.add(a.trim());
+        return args;
+    }
+
+    private static List<Integer> stops(List<String> args) {
+        List<Integer> out = new ArrayList<>();
+        for (String a : args) {
+            String c = color(a);
+            if (c != null) out.add(rgb(c));
+        }
+        return out;
+    }
+
+    private static float phase(List<String> args) {
+        if (args.isEmpty()) return 0;
+        try {
+            float p = Float.parseFloat(args.get(args.size() - 1));
+            return p < -1 || p > 1 ? 0 : p;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static int mix(float t, int a, int b) {
+        float k = Math.min(1f, Math.max(0f, t));
+        int r = Math.round(((a >> 16) & 0xff) + k * (((b >> 16) & 0xff) - ((a >> 16) & 0xff)));
+        int g = Math.round(((a >> 8) & 0xff) + k * (((b >> 8) & 0xff) - ((a >> 8) & 0xff)));
+        int bl = Math.round((a & 0xff) + k * ((b & 0xff) - (a & 0xff)));
+        return (r << 16) | (g << 8) | bl;
+    }
+
+    private static int transition(String body) {
+        List<String> args = parts(body);
+        List<Integer> colors = stops(args);
+        if (colors.isEmpty()) return 0xFFFFFF;
+        float phase = phase(args);
+        boolean negative = phase < 0;
+        if (negative) {
+            phase += 1;
+            java.util.Collections.reverse(colors);
+        }
+        float steps = 1f / Math.max(1, colors.size() - 1);
+        for (int n = 1; n < colors.size(); n++) {
+            float at = n * steps;
+            if (at < phase) continue;
+            float factor = 1 + (phase - at) * (colors.size() - 1);
+            return negative ? mix(1 - factor, colors.get(n), colors.get(n - 1)) : mix(factor, colors.get(n - 1), colors.get(n));
+        }
+        return colors.get(0);
     }
 
     private static int rgb(String color) {
@@ -235,75 +304,73 @@ public final class Styled {
         int total = 0;
         for (Run r : inner) total += r.text().length();
         if (total == 0) return inner;
-        List<String> args = new ArrayList<>();
-        int colon = body.indexOf(':');
-        if (colon >= 0) for (String a : body.substring(colon + 1).split(":")) args.add(a.trim());
+        List<String> args = parts(body);
+        boolean rainbow = kind.equals("rainbow"), reversed = false;
+        double shift = 0;
+        float phase = 0;
         List<Integer> stops = new ArrayList<>();
-        double phase = 0;
-        for (String a : args) {
-            String c = color(a);
-            if (c != null && kind.equals("gradient")) stops.add(rgb(c));
-            else {
-                try {
-                    phase = Double.parseDouble(a.startsWith("!") ? a.substring(1) : a);
-                } catch (NumberFormatException ignored) {
-                }
+        if (rainbow) {
+            String a = args.isEmpty() ? "" : args.get(0);
+            if (a.startsWith("!")) {
+                reversed = true;
+                a = a.substring(1);
             }
-        }
-        if (kind.equals("gradient") && stops.size() < 2) {
-            stops.clear();
-            stops.add(0xFFFFFF);
-            stops.add(0x000000);
+            try {
+                if (!a.isEmpty()) shift = Integer.parseInt(a) / 10d;
+            } catch (NumberFormatException ignored) {
+            }
+        } else {
+            stops = stops(args);
+            phase = phase(args);
+            if (stops.size() < 2) {
+                stops.clear();
+                stops.add(0xFFFFFF);
+                stops.add(0x000000);
+            }
+            if (phase < 0) {
+                phase += 1;
+                java.util.Collections.reverse(stops);
+            }
         }
         List<Run> out = new ArrayList<>();
         int index = 0;
         for (Run r : inner) {
             for (int k = 0; k < r.text().length(); k++) {
                 int color;
-                if (kind.equals("rainbow")) {
-                    color = hsv((float) (((index / (double) total) + phase) % 1.0));
+                if (rainbow) {
+                    float at = reversed ? total - 1 - index : index;
+                    color = hue((float) ((at / total + shift) % 1f));
                 } else {
-                    double t = total == 1 ? 0 : index / (double) (total - 1);
-                    color = gradient(stops, Math.min(1, Math.max(0, t + phase)));
+                    float step = total == 1 ? 0 : (float) (stops.size() - 1) / (total - 1);
+                    float position = index * step + phase * (stops.size() - 1);
+                    int low = (int) Math.floor(position);
+                    color = mix(position - low, stops.get(low % stops.size()), stops.get((int) Math.ceil(position) % stops.size()));
                 }
-                String hex = Integer.toHexString(0x1000000 | color).substring(1).toUpperCase(Locale.ROOT);
-                out.add(new Run(String.valueOf(r.text().charAt(k)), r.style().color("#" + hex)));
+                out.add(new Run(String.valueOf(r.text().charAt(k)), r.style().color(hexOf(color))));
                 index++;
             }
         }
         return out;
     }
 
-    private static int gradient(List<Integer> stops, double t) {
-        double scaled = t * (stops.size() - 1);
-        int i = Math.min(stops.size() - 2, (int) Math.floor(scaled));
-        double f = scaled - i;
-        int a = stops.get(i), b = stops.get(i + 1);
-        int r = (int) Math.round(((a >> 16) & 0xff) + (((b >> 16) & 0xff) - ((a >> 16) & 0xff)) * f);
-        int g = (int) Math.round(((a >> 8) & 0xff) + (((b >> 8) & 0xff) - ((a >> 8) & 0xff)) * f);
-        int bl = (int) Math.round((a & 0xff) + ((b & 0xff) - (a & 0xff)) * f);
-        return (r << 16) | (g << 8) | bl;
-    }
-
-    private static int hsv(float h) {
-        float s = 1, v = 1;
-        int i = (int) Math.floor(h * 6) % 6;
-        float f = h * 6 - (float) Math.floor(h * 6);
-        float p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+    private static int hue(float hue) {
+        float h = hue * 6;
+        int i = (int) Math.floor(h);
+        float f = h - i, q = 1 - f;
         float r, g, b;
         switch (i) {
-            case 0 -> { r = v; g = t; b = p; }
-            case 1 -> { r = q; g = v; b = p; }
-            case 2 -> { r = p; g = v; b = t; }
-            case 3 -> { r = p; g = q; b = v; }
-            case 4 -> { r = t; g = p; b = v; }
-            default -> { r = v; g = p; b = q; }
+            case 0 -> { r = 1; g = f; b = 0; }
+            case 1 -> { r = q; g = 1; b = 0; }
+            case 2 -> { r = 0; g = 1; b = f; }
+            case 3 -> { r = 0; g = q; b = 1; }
+            case 4 -> { r = f; g = 0; b = 1; }
+            default -> { r = 1; g = 0; b = q; }
         }
-        return (Math.round(r * 255) << 16) | (Math.round(g * 255) << 8) | Math.round(b * 255);
+        return ((int) (r * 255) << 16) | ((int) (g * 255) << 8) | (int) (b * 255);
     }
 
     public static Nbt.Tag component(String text, String parsing, boolean lore) throws Problem {
-        if (parsing.equals("json")) return json(text);
+        if (parsing.equals("json")) return upright(json(text), lore);
         Style root = new Style(lore ? "gray" : null, null, Boolean.FALSE, null, null, null);
         List<Run> runs = runs(text, parsing);
         if (runs.size() == 1) return compound(runs.get(0).text(), merge(root, runs.get(0).style()));
@@ -326,6 +393,15 @@ public final class Styled {
         if (s.color() != null) c.put("color", new Nbt.Text(s.color()));
         for (String d : DECOS) if (s.get(d) != null) c.put(d, Nbt.Num.ofByte(s.get(d) ? 1 : 0));
         return c;
+    }
+
+    private static Nbt.Tag upright(Nbt.Tag tag, boolean lore) {
+        Nbt.Compound root = tag instanceof Nbt.Compound own ? own
+                : tag instanceof Nbt.ListTag ? new Nbt.Compound().put("text", new Nbt.Text("")).put("extra", tag)
+                : new Nbt.Compound().put("text", tag);
+        if (root.get("italic") == null) root.put("italic", Nbt.Num.ofByte(0));
+        if (lore && root.get("color") == null) root.put("color", new Nbt.Text("gray"));
+        return root;
     }
 
     private static Nbt.Tag json(String text) throws Problem {

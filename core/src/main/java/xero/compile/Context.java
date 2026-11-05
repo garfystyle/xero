@@ -8,6 +8,7 @@ import xero.lang.Ast.Arg;
 import xero.lang.Ast.Expr;
 import xero.lang.Ast.Span;
 import xero.lang.Diagnostic;
+import xero.lang.Keywords;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -43,16 +44,26 @@ final class Context {
     final Map<String, String> variables = new LinkedHashMap<>();
     final Set<String> declared = new LinkedHashSet<>();
     final Set<String> pinned = new LinkedHashSet<>();
+    final Set<String> reserved = new LinkedHashSet<>();
     final Map<String, Expr> consts = new LinkedHashMap<>();
     final List<Imported> modules = new ArrayList<>();
     final Map<String, String> external = new LinkedHashMap<>();
     final Map<String, String> origins = new LinkedHashMap<>();
     final Map<String, String> kinds = new LinkedHashMap<>();
+    final Map<String, String> likely = new LinkedHashMap<>();
+    final Map<String, String> slots = new LinkedHashMap<>();
     final Map<String, Ast.Func> functions = new LinkedHashMap<>();
+    final Map<String, Ast.Func> processes = new LinkedHashMap<>();
     final Set<String> returning = new LinkedHashSet<>();
     final Map<String, String> shapes = new LinkedHashMap<>();
     Map<String, String> params = Map.of();
     Map<String, String> paramKinds = Map.of();
+    Map<String, String> lineKinds = Map.of();
+    Map<String, String> ownKinds = Map.of();
+    Map<String, String> ownLikely = Map.of();
+    Map<String, String> ownShapes = Map.of();
+    Map<String, String> ownSlots = Map.of();
+    boolean storing;
     Ast.Var writing;
     Data.Event happening;
     double unit = 50;
@@ -63,6 +74,7 @@ final class Context {
     int flags;
     List<Object> prelude;
     Map<String, Integer> callCounts = Map.of();
+    Map<Ast.Var, Ast.Var> snapshots = new java.util.IdentityHashMap<>();
     int called;
 
     final Compiler compiler;
@@ -74,6 +86,7 @@ final class Context {
     final Hints hints;
     final Locals locals;
     final Lints lints;
+    final Order order;
 
     Context(Data data, Names names) {
         this.data = data;
@@ -87,6 +100,7 @@ final class Context {
         hints = new Hints(this);
         locals = new Locals(this);
         lints = new Lints(this);
+        order = new Order(this);
     }
 
     static Boolean truth(String word) {
@@ -105,12 +119,51 @@ final class Context {
         };
     }
 
+    Ast.Func line(String name) {
+        Ast.Func f = functions.get(name);
+        return f != null ? f : processes.get(name);
+    }
+
+    boolean userCall(Ast.Call call) {
+        if (call.qualifier() != null) return line(call.shown()) != null && !builtin(call.shown());
+        if (call.quoted()) return true;
+        Ast.Func f = line(call.name());
+        return f != null && !(f.quoted() && builtin(call.name()));
+    }
+
+    private boolean builtin(String name) {
+        return names.resolve(Names.Space.ACTION, name) != null || names.resolve(Names.Space.CONDITION, name) != null
+                || Wire.CALL_WORDS.contains(name);
+    }
+
     Expr constant(Ast.Var v) {
-        if (v.quoted() || params.containsKey(v.name())) return null;
+        if (v.scope() != null || params.containsKey(v.name())) return null;
+        if (v.quoted() && Keywords.plainName(v.name())) return null;
         return consts.get(v.name());
     }
 
+    Expr item(Ast.Index i) {
+        Expr from = resolved(i.target());
+        if (from instanceof Ast.ListLit l) {
+            Double n = formula.fold(i.index());
+            if (n == null || n != Math.rint(n) || n < 0 || n >= l.items().size()) return null;
+            Expr found = l.items().get(n.intValue());
+            return found instanceof Ast.Blank ? null : found;
+        }
+        if (from instanceof Ast.MapLit m && resolved(i.index()) instanceof Ast.Str key && !key.interpolated()) {
+            for (int n = 0; n < m.keys().size(); n++)
+                if (resolved(m.keys().get(n)) instanceof Ast.Str s && !s.interpolated() && s.text().equals(key.text())
+                        && !(m.values().get(n) instanceof Ast.Blank)) return m.values().get(n);
+        }
+        return null;
+    }
+
     Expr resolved(Expr e) {
+        if (e instanceof Ast.Var taken && snapshots.containsKey(taken)) return snapshots.get(taken);
+        if (e instanceof Ast.Index i) {
+            Expr found = item(i);
+            return found == null ? e : resolved(found);
+        }
         if (!(e instanceof Ast.Var v)) return e;
         Expr k = constant(v);
         if (k != null) return resolved(k);
@@ -121,11 +174,44 @@ final class Context {
         return number == null ? e : new Ast.Num(number, v.span());
     }
 
+    private boolean own(Map<String, String> table, String name) {
+        String scope = variables.get(name);
+        return table.containsKey(name) && ("local".equals(scope) || "line".equals(scope));
+    }
+
+    String slot(String name) {
+        return own(ownKinds, name) ? ownSlots.get(name) : slots.get(name);
+    }
+
+    String shape(String name) {
+        return own(ownShapes, name) ? ownShapes.get(name) : shapes.get(name);
+    }
+
     String kind(Ast.Var v) {
         if (v.scope() != null) return null;
         if (params.containsKey(v.name())) return paramKinds.get(v.name());
-        String k = kinds.get(v.name());
+        String k = own(ownKinds, v.name()) ? ownKinds.get(v.name()) : kinds.get(v.name());
         return "?".equals(k) ? null : k;
+    }
+
+    String likely(Ast.Var v) {
+        if (v.scope() != null) return null;
+        if (params.containsKey(v.name())) {
+            String own = paramKinds.get(v.name());
+            if (own == null) own = lineKinds.get(v.name());
+            return "?".equals(own) ? null : own;
+        }
+        String soft = own(ownLikely, v.name()) ? ownLikely.get(v.name()) : own(ownKinds, v.name()) ? null : likely.get(v.name());
+        if (soft != null) return "?".equals(soft) ? null : soft;
+        String firm = kind(v);
+        if (firm != null) return firm;
+        String used = slot(v.name());
+        return "?".equals(used) ? null : used;
+    }
+
+    String shown(Ast.Var v) {
+        if (declared.contains(v.name()) && kind(v) == null) return null;
+        return likely.containsKey(v.name()) || own(ownLikely, v.name()) || params.containsKey(v.name()) ? likely(v) : kind(v);
     }
 
     double number(Ast.Num n) {
@@ -172,7 +258,9 @@ final class Context {
     }
 
     String flag() {
-        return Wire.TEMP + (++flags);
+        String name;
+        do name = Wire.TEMP + (++flags); while (reserved.contains(name));
+        return name;
     }
 
     Ast.Var temp(Span at) {

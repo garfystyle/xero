@@ -211,10 +211,14 @@ final class ReferenceDoc {
         };
     }
 
+    private static boolean onlyVariables(Data.Action a) {
+        return a.args().size() == 1 && a.plural(a.args().get(0).id());
+    }
+
     private static String example(Names.Entry e) {
         Data.Action a = e.action();
         boolean condition = e.space() == Names.Space.CONDITION;
-        Data.Arg result = condition || a.container() ? null : a.result();
+        Data.Arg result = condition || a.container() || onlyVariables(a) ? null : a.result();
         List<String> parts = new ArrayList<>();
         for (Data.Arg arg : a.args()) if (arg != result) parts.add(sample(arg));
         if (a.id().endsWith("_by_conditional") || a.id().equals("repeat_while")) parts.add("x == 1");

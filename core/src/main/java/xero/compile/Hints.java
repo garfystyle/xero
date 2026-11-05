@@ -66,6 +66,9 @@ final class Hints {
                 full.add(e.qualified());
         if (call.qualifier() == null && !full.isEmpty())
             return "«" + call.name() + "» есть в нескольких категориях — напиши " + String.join(" или ", full);
+        int dot = call.name().indexOf('.');
+        if (call.qualifier() == null && dot > 0 && Keywords.qualifier(call.name().substring(0, dot)))
+            return "слишком длинное имя: " + call.name();
         return "нет " + (space == Names.Space.ACTION ? "действия" : "условия") + " «" + call.shown() + "»";
     }
 

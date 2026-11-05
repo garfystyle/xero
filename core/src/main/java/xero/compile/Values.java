@@ -51,7 +51,14 @@ final class Values {
                 }
                 yield o;
             }
-            case "len" -> obj("type", "number", "number", c.formula.length(call));
+            case "len" -> {
+                Integer fixed = c.formula.constantLength(call);
+                yield obj("type", "number", "number", fixed != null ? num(fixed) : c.formula.length(call));
+            }
+            case "literal" -> {
+                if (positional.size() != 1 || !named.isEmpty()) throw c.stop("literal(значение)", call.span());
+                yield c.compiler.stored(positional.get(0));
+            }
             case "num" -> {
                 if (positional.size() != 1 || !named.isEmpty() || !(positional.get(0) instanceof Ast.Str str))
                     throw c.stop("num(\"…\") — число, записанное текстом, например num(\"%math(%var(x)+1)\")",
@@ -61,8 +68,13 @@ final class Values {
                     c.warning("«" + str.text() + "» — не число: сервер остановит строку или даст 0", str.span());
                 yield obj("type", "number", "number", str.text());
             }
-            case "loc" -> location(call, positional, named);
-            case "vec" -> {
+            case "loc", "vec" -> {
+                if (built(call)) {
+                    Ast.Var tmp = c.temp(call.span());
+                    c.need(call.span()).add(build(call, tmp));
+                    yield c.compiler.variable(tmp, null);
+                }
+                if (call.name().equals("loc")) yield location(call, positional, named);
                 double[] xyz = numbers(call, positional, named, List.of("x", "y", "z"), 3, 3);
                 yield obj("type", "vector", "x", num(xyz[0]), "y", num(xyz[1]), "z", num(xyz[2]));
             }
@@ -71,6 +83,8 @@ final class Values {
                 only(call, named, Set.of());
                 if (positional.size() != 1) throw c.stop("block(id): нужен один id блока, например block(stone)", call.span());
                 String id = minecraft(id(positional.get(0)));
+                if (id.indexOf('[') >= 0)
+                    throw c.stop("в block(…) только id, без состояния", positional.get(0).span(), "состояние пишут текстом: \"" + bare(id) + "\"");
                 known(id, c.data.minecraft().blocks(), "блока", positional.get(0).span());
                 yield obj("type", "block", "block", id);
             }
@@ -79,6 +93,26 @@ final class Values {
             case "potion" -> potion(call, positional, named);
             default -> throw c.stop("нет значения «" + call.name() + "»", call.span());
         };
+    }
+
+    boolean built(Ast.Call call) {
+        if (call.qualifier() != null || call.quoted() || !(call.name().equals("loc") || call.name().equals("vec"))) return false;
+        for (Arg a : call.args()) if (c.formula.fold(a.value()) == null) return true;
+        return false;
+    }
+
+    Map<String, Object> build(Ast.Call call, Ast.Var into) {
+        boolean location = call.name().equals("loc");
+        Data.Action action = c.data.actions().get(location ? "set_variable_set_all_coordinates" : "set_variable_vector");
+        List<String> keys = location ? List.of("x", "y", "z", "yaw", "pitch") : List.of("x", "y", "z");
+        List<Arg> args = new ArrayList<>();
+        int position = 0;
+        for (Arg a : call.args()) {
+            if (a.name() == null && position >= keys.size())
+                throw c.stop(call.name() + "(" + String.join(", ", keys) + ")", call.span());
+            args.add(Context.named(a.name() != null ? a.name() : keys.get(position++), a.value()));
+        }
+        return obj("action", action.id(), "values", c.compiler.bind(action, args, into, call.span()));
     }
 
     private Object location(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
@@ -133,7 +167,7 @@ final class Values {
             case "name" -> new ItemSpec.Name(itemLine(e));
             case "lore" -> {
                 List<ItemSpec.Line> lines = new ArrayList<>();
-                if (e instanceof Ast.ListLit l) for (Expr item : l.items()) lines.add(itemLine(item));
+                if (c.resolved(e) instanceof Ast.ListLit l) for (Expr item : l.items()) lines.add(itemLine(item));
                 else lines.add(itemLine(e));
                 if (lines.isEmpty()) throw c.stop("пустое описание — просто не пиши lore", e.span());
                 yield new ItemSpec.Lore(lines);
@@ -162,7 +196,7 @@ final class Values {
     }
 
     private ItemSpec.Part enchantments(Expr e) {
-        if (!(e instanceof Ast.MapLit m) || m.keys().isEmpty())
+        if (!(c.resolved(e) instanceof Ast.MapLit m) || m.keys().isEmpty())
             throw c.stop("чары пишутся словарём: enchantments: {sharpness: 5, unbreaking: 3}", e.span());
         Map<String, Integer> levels = new LinkedHashMap<>();
         Set<String> known = c.data.minecraft().enchantments();
@@ -186,24 +220,25 @@ final class Values {
     }
 
     private ItemSpec.Part tags(Expr e) {
-        if (!(e instanceof Ast.MapLit m) || m.keys().isEmpty())
+        if (!(c.resolved(e) instanceof Ast.MapLit m) || m.keys().isEmpty())
             throw c.stop("теги пишутся словарём: tags: {kind: \"hero\"}", e.span());
         Map<String, String> values = new LinkedHashMap<>();
         for (int i = 0; i < m.keys().size(); i++) {
             String k = id(m.keys().get(i));
-            Expr v = m.values().get(i);
+            Expr v = c.resolved(m.values().get(i));
             String text = switch (v) {
-                case Ast.Str str when !str.interpolated() -> str.text();
+                case Ast.Str str when c.formula.fixedText(str) != null -> c.formula.fixedText(str);
                 case Ast.Num n -> n.text();
                 default -> throw c.stop("значение тега — текст в кавычках", v.span());
             };
+            c.lints.text(text);
             if (values.put(k, text) != null) c.error("тег «" + k + "» повторяется", m.keys().get(i).span());
         }
         return new ItemSpec.Tags(values);
     }
 
     private ItemSpec.Part components(Expr e) {
-        if (!(e instanceof Ast.Str str) || str.interpolated() || str.prefix() != null)
+        if (!(c.resolved(e) instanceof Ast.Str str) || str.interpolated() || str.prefix() != null)
             throw c.stop("components — SNBT в кавычках, как в /give: components: \"{max_stack_size:1}\"", e.span());
         Nbt.Tag parsed;
         try {
@@ -228,10 +263,18 @@ final class Values {
     }
 
     private ItemSpec.Line itemLine(Expr e) {
-        if (!(e instanceof Ast.Str s)) throw c.stop("здесь нужен текст в кавычках", e.span());
-        if (s.interpolated()) throw c.stop("в предмете текст постоянный — ${…} здесь не подставится", s.span(),
+        if (!(c.resolved(e) instanceof Ast.Str s)) throw c.stop("здесь нужен текст в кавычках", e.span());
+        String text = c.formula.fixedText(s);
+        if (text == null) throw c.stop("в предмете текст постоянный — ${…} здесь не подставится", s.span(),
                 "менять имя по ходу игры — действием set_item_name");
-        return new ItemSpec.Line(s.text(), Context.parsing(s.prefix()));
+        c.lints.text(text);
+        if ("mm".equals(s.prefix())) {
+            for (String tag : Wire.NOT_IN_ITEMS)
+                if (text.toLowerCase(Locale.ROOT).contains("<" + tag))
+                    c.warning("в предмете <" + tag + "…> не сработает: имя собирается заранее и останется текстом", s.span(),
+                            "такое имя задают действием set_item_name или полем components");
+        }
+        return new ItemSpec.Line(text, Context.parsing(s.prefix()));
     }
 
     private boolean bool(Expr e) {
@@ -254,7 +297,7 @@ final class Values {
         double pitch = named.containsKey("pitch") ? literal(named.get("pitch")) : 1;
         String variation = "";
         if (named.containsKey("variation")) {
-            if (named.get("variation") instanceof Ast.Str s) variation = s.text();
+            if (c.resolved(named.get("variation")) instanceof Ast.Str s) variation = s.text();
             else c.error("variation — текст в кавычках", named.get("variation").span());
         }
         String source = "master";
@@ -271,8 +314,12 @@ final class Values {
     }
 
     private Object particle(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
-        only(call, named, Set.of("count", "first_spread", "second_spread", "x_motion", "y_motion", "z_motion",
-                "color", "to_color", "size", "material"));
+        for (String field : List.copyOf(named.keySet()))
+            if (!Wire.PARTICLE_FIELDS.contains(field)) {
+                c.warning("у particle() нет «" + field + "» — поле не уйдёт", named.get(field).span(),
+                        "есть: " + String.join(", ", Wire.PARTICLE_FIELDS));
+                named.remove(field);
+            }
         if (positional.size() != 1) throw c.stop("particle(id), например particle(flame, count: 10)", call.span());
         String id = id(positional.get(0)).toUpperCase(Locale.ROOT);
         List<String> extras = c.data.pickers().particles().get(id);
@@ -296,25 +343,29 @@ final class Values {
                 "second_spread", num(named.containsKey("second_spread") ? literal(named.get("second_spread")) : 0));
         extra(o, named, extras.contains("Движение"), "движения", List.of("x_motion", "y_motion", "z_motion"));
         if (extras.contains("Цвет")) o.put("color", color(named.get("color")));
-        else if (named.containsKey("color")) c.error("у этой частицы нет цвета", named.get("color").span());
+        else noField(named, "color", "цвета");
         if (extras.contains("Цвет перехода")) o.put("to_color", color(named.get("to_color")));
-        else if (named.containsKey("to_color")) c.error("у этой частицы нет цвета перехода", named.get("to_color").span());
+        else noField(named, "to_color", "цвета перехода");
         if (extras.contains("Размер")) o.put("size", num(named.containsKey("size") ? literal(named.get("size")) : 1));
-        else if (named.containsKey("size")) c.error("у этой частицы нет размера", named.get("size").span());
+        else noField(named, "size", "размера");
         if (extras.contains("Материал")) {
             Expr m = named.get("material");
             String material = m == null ? "minecraft:stone" : minecraft(id(m));
             if (m != null && !c.data.minecraft().blocks().contains(material))
                 known(material, c.data.minecraft().items(), "блока или предмета", m.span());
             o.put("material", material(material));
-        } else if (named.containsKey("material")) c.error("у этой частицы нет материала", named.get("material").span());
+        } else noField(named, "material", "материала");
         return o;
+    }
+
+    private void noField(Map<String, Expr> named, String key, String what) {
+        if (named.containsKey(key)) c.warning("у этой частицы нет " + what + " — поле не уйдёт", named.get(key).span());
     }
 
     private void extra(Map<String, Object> o, Map<String, Expr> named, boolean allowed, String what, List<String> keys) {
         for (String k : keys) {
             if (allowed) o.put(k, num(named.containsKey(k) ? literal(named.get(k)) : 0));
-            else if (named.containsKey(k)) c.error("у этой частицы нет " + what, named.get(k).span());
+            else noField(named, k, what);
         }
     }
 

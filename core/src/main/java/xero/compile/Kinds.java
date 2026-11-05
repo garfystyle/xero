@@ -37,6 +37,8 @@ final class Kinds {
 
     static String ofParam(String valueType) { return valueType == null ? null : PARAM_TYPES.get(valueType); }
 
+    static boolean spatial(String kind) { return VECTOR.equals(kind) || LOCATION.equals(kind); }
+
     static String ofGameValue(Data data, String id) {
         Data.GameValue g = data.gameValues().get(id);
         if (g == null || g.returns().isEmpty() || g.returns().equals(Data.ANY)) return null;

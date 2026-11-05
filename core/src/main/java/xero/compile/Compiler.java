@@ -19,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import static xero.compile.Context.array;
 import static xero.compile.Context.entry;
@@ -79,6 +80,15 @@ public final class Compiler {
     }
 
     public static Result compile(Data data, Names names, String name, String text, Loader loader, Front front) {
+        try {
+            return run(data, names, name, text, loader, front);
+        } catch (StackOverflowError e) {
+            return new Result(obj("handlers", new ArrayList<>()), List.of(Diagnostic.error("код вложен слишком глубоко — раздели его на части", 0, 1)),
+                    List.of(), List.of());
+        }
+    }
+
+    private static Result run(Data data, Names names, String name, String text, Loader loader, Front front) {
         Context c = new Context(data, names);
         c.compiler.front = front;
         List<Unit> units = new ArrayList<>();
@@ -93,6 +103,7 @@ public final class Compiler {
         });
         List<Declared> declared = new ArrayList<>();
         c.functions.forEach((n, f) -> declared.add(new Declared(f, c.origins.get(n), c.external.get(n))));
+        c.processes.forEach((n, f) -> declared.add(new Declared(f, c.origins.get(n), c.external.get(n))));
         List<Object> connected = new ArrayList<>();
         for (Context.Imported m : c.modules) if (m.entry() != null) connected.add(m.entry());
         return new Result(module, diagnostics, declared, connected);
@@ -164,6 +175,7 @@ public final class Compiler {
 
     private Map<String, Object> module(List<Unit> units) {
         c.declarations.collect(units);
+        c.order.collect(units);
         List<Object> handlers = new ArrayList<>();
         int next = 0;
         for (Unit u : units) {
@@ -205,7 +217,9 @@ public final class Compiler {
         for (Ast.Decorator d : e.decorators())
             if (!d.name().equals(Declarations.LINE)) c.error("у события бывает только пометка @line", d.span());
         c.current = null;
-        c.params = Map.of();
+        c.params = c.declarations.lineScoped(e);
+        c.lineKinds = c.declarations.lineKinds(e);
+        c.declarations.enter(e);
         c.locals.enter(e);
         Data.Event known = c.data.events().get(e.name());
         c.happening = known;
@@ -215,6 +229,9 @@ public final class Compiler {
         List<Object> ops = block(e.body());
         c.world = false;
         c.happening = null;
+        c.params = Map.of();
+        c.lineKinds = Map.of();
+        c.declarations.leave();
         c.locals.leave();
         if (!c.data.events().containsKey(e.name())) {
             String best = Suggest.best(e.name(), c.data.events().keySet());
@@ -231,13 +248,20 @@ public final class Compiler {
         c.locals.enter(f);
         c.lints.enter();
         c.flags = 0;
-        Map<String, String> own = new LinkedHashMap<>();
-        Ast.Func declared = c.functions.getOrDefault(f.name(), f);
+        Map<String, String> own = new LinkedHashMap<>(c.declarations.lineScoped(f));
+        Ast.Func declared = (f.process() ? c.processes : c.functions).getOrDefault(f.name(), f);
         for (Ast.Param p : declared.params()) own.put(p.name(), "line");
         c.params = own;
         c.paramKinds = Declarations.paramKinds(declared);
+        c.lineKinds = c.declarations.lineKinds(f);
+        c.declarations.enter(f);
         List<Object> values = c.declarations.values(f);
-        List<Object> ops = block(f.body());
+        List<Object> ops = new ArrayList<>();
+        for (String name : c.declarations.settled()) {
+            Object param = obj("type", "variable", "variable", name, "scope", "line");
+            ops.add(setValue(param, param));
+        }
+        ops.addAll(block(f.body()));
         c.lints.leave(f);
         if (c.returning.contains(f.name()) && !Declarations.alwaysReturns(f.body()))
             c.warning("«" + f.name() + "» может дойти до конца без return — тогда вызов получит прошлое значение",
@@ -245,6 +269,8 @@ public final class Compiler {
         c.current = null;
         c.params = Map.of();
         c.paramKinds = Map.of();
+        c.lineKinds = Map.of();
+        c.declarations.leave();
         c.locals.leave();
         return obj("type", f.process() ? "process" : "function", "name", f.name(), "values", values,
                 "position", position, "operations", ops);
@@ -271,16 +297,20 @@ public final class Compiler {
     private void statement(Ast.Stmt s, List<Object> ops) {
         List<Object> saved = c.prelude;
         Map<String, Integer> savedCounts = c.callCounts;
+        Map<Ast.Var, Ast.Var> savedSnapshots = c.snapshots;
         c.prelude = new ArrayList<>();
         c.callCounts = c.calls.count(s);
+        c.snapshots = new java.util.IdentityHashMap<>();
         List<Object> out = new ArrayList<>();
         try {
+            c.order.plan(s);
             statementInto(s, out);
         } finally {
             ops.addAll(c.prelude);
             ops.addAll(out);
             c.prelude = saved;
             c.callCounts = savedCounts;
+            c.snapshots = savedSnapshots;
         }
     }
 
@@ -289,11 +319,12 @@ public final class Compiler {
             case Ast.Run r -> ops.add(run(r));
             case Ast.Assign a -> assign(a, ops);
             case Ast.IndexAssign a -> {
+                Ast.Index target = onceIndexed(a.target(), ops);
                 Expr value = a.op().equals("=") ? a.value()
-                        : new Ast.Binary(a.op().substring(0, 1), a.target(), a.value(), a.span());
-                write(a.target(), value, ops);
+                        : new Ast.Binary(a.op().substring(0, 1), target, a.value(), a.span());
+                write(target, value, ops);
             }
-            case Ast.Declare d -> { }
+            case Ast.Declare d -> c.lints.name(d.name());
             case Ast.MultiAssign m -> {
                 if (m.names().size() != m.values().size()) {
                     c.error("слева " + m.names().size() + " переменных, а справа " + m.values().size() + " значений", m.span());
@@ -331,7 +362,11 @@ public final class Compiler {
                 }
             }
             case Ast.While w -> ops.add(c.conditions.whileLoop(w.condition(), w.body()));
-            case Ast.Forever f -> ops.add(loop("repeat_forever", List.of(), f.body()));
+            case Ast.Forever f -> {
+                if (!c.lints.pauses(f.body())) c.warning("в forever нет wait: сервер остановит цикл за слишком много итераций", f.span(),
+                        "допиши wait(1) или выход через break");
+                ops.add(loop("repeat_forever", List.of(), f.body()));
+            }
         }
     }
 
@@ -379,12 +414,17 @@ public final class Compiler {
             if (r.body() != null) c.error("у вызова функции нет тела", r.body().span());
             return c.calls.dynamic(call);
         }
-        if (call.qualifier() == null && (c.functions.containsKey(call.name()) || call.quoted())) {
+        if (c.userCall(call)) {
             if (target != null) c.error("у вызова функции нет цели", targetSpan);
             if (r.body() != null) c.error("у вызова функции нет тела", r.body().span());
             return c.calls.invoke(call);
         }
         Data.Action action = action(call);
+        if (target == null && r.body() == null && inPlace(action, call)) {
+            Ast.Var receiver = (Ast.Var) call.args().get(0).value();
+            c.lints.read(receiver.name());
+            return obj("action", action.id(), "values", bind(action, call.args(), receiver, call.span()));
+        }
         Map<String, Object> op = obj("action", action.id());
         if (Wire.CONDITIONAL.contains(action.canonical())) {
             if (call.args().isEmpty() || call.args().get(0).name() != null)
@@ -393,20 +433,22 @@ public final class Compiler {
             boolean loop = action.canonical().equals("repeat_while") && target == null;
             for (int i = 1; i < call.args().size(); i++) c.error("лишний аргумент", call.args().get(i).value().span());
             Ast.Block body = r.body() == null ? new Ast.Block(List.of(), call.span()) : r.body();
-            if (!(c.conditions.tree(condition, false) instanceof Conditions.Leaf)) {
+            if (!(c.conditions.tree(condition, false) instanceof Conditions.Leaf leaf)) {
                 if (loop) return c.conditions.whileLoop(condition, body);
                 throw c.stop("в «" + call.shown() + "» and/or нельзя — сервер проверяет условие у каждой цели отдельно",
-                        condition.span());
+                        condition.span(), "над одной переменной пиши x in [1, 2], иначе посчитай условие заранее в переменную");
             }
-            Context.Captured<Conditions.Cond> captured = c.capture(() -> c.conditions.condition(condition));
+            Context.Captured<Conditions.Cond> captured = c.capture(() -> c.conditions.leafCond(leaf));
             if (!captured.pre().isEmpty()) {
                 if (loop) return c.conditions.whileLoop(condition, body);
                 throw c.stop("в «" + call.shown() + "» вызовы, индексы и формулы-условия нельзя — сервер проверяет условие сам",
                         condition.span(), "посчитай значение заранее в переменную");
             }
             Conditions.Cond cond = captured.value();
+            candidate(action, condition);
             op.put("values", cond.values());
             op.put("conditional", obj("action", cond.id(), "is_inverted", cond.inverted()));
+            if (cond.selection() != null) op.put("selection", cond.selection());
         } else {
             op.put("values", bind(action, call.args(), null, call.span()));
         }
@@ -424,6 +466,38 @@ public final class Compiler {
             c.error("у «" + call.shown() + "» нет тела в фигурных скобках", r.body().span());
         }
         return op;
+    }
+
+    private boolean inPlace(Data.Action action, Ast.Call call) {
+        Data.Arg result = action.result();
+        List<Arg> args = call.args();
+        if (result == null || args.isEmpty() || args.get(0).name() != null || !(args.get(0).value() instanceof Ast.Var)) return false;
+        List<Data.Arg> rest = new ArrayList<>(action.args());
+        rest.remove(result);
+        if (Wire.IN_PLACE.contains(action.canonical())) {
+            rest.removeIf(a -> Data.VARIABLE.equals(a.kind()));
+            boolean fullForm = args.size() > 1 && args.get(1).name() == null && rest.get(0).kind().equals(kindOf(args.get(1).value()));
+            return !fullForm && args.stream().filter(a -> a.name() == null).count() <= rest.size();
+        }
+        if (args.size() < 2 || args.get(1).name() != null) return false;
+        if (rest.isEmpty() || !Kinds.ITEM.equals(rest.get(0).kind())) return false;
+        Expr second = c.resolved(args.get(1).value());
+        return second instanceof Ast.Str s ? !itemId(s) : Kinds.NUMBER.equals(kindOf(second));
+    }
+
+    private boolean itemId(Ast.Str s) {
+        return !s.interpolated() && c.data.minecraft().items().contains("minecraft:" + s.text().toLowerCase(Locale.ROOT));
+    }
+
+    private void candidate(Data.Action action, Expr condition) {
+        if (!action.id().contains("entity")) return;
+        Expr inner = condition instanceof Ast.Unary u ? u.operand() : condition;
+        if (!(inner instanceof Ast.Binary b)) return;
+        for (Expr side : List.of(b.left(), b.right())) {
+            if (side instanceof Ast.Targeted t && t.target().equals("current") && t.inner() instanceof Ast.Path)
+                c.warning("в условии выборки сущностей @current не видит кандидата: сравнение идёт не с ним", t.span(),
+                        "проверяй условием сущности, например entity.name_equals(\"имя\")");
+        }
     }
 
     Data.Action action(Ast.Call call) {
@@ -457,8 +531,9 @@ public final class Compiler {
         return obj("type", id);
     }
 
-    List<Object> bind(Data.Action action, List<Arg> args, Ast.Var into, Span at) {
+    List<Object> bind(Data.Action action, List<Arg> given, Ast.Var into, Span at) {
         Map<String, Expr> bound = new LinkedHashMap<>();
+        List<Arg> args = given;
         List<Data.Arg> list = action.args();
         List<Data.Arg> order = new ArrayList<>(list);
         List<Data.Setting> settings = action.settings();
@@ -469,18 +544,24 @@ public final class Compiler {
                 throw c.stop("«" + Names.shortName(action.id()) + "» ничего не записывает в переменную", at);
             bound.put(result.id(), into);
             order.remove(result);
+            if (repeatsTarget(action, args, into)) args = args.subList(1, args.size());
+            else if (skipsExtra(action, order, args, into)) order.remove(0);
         }
         for (Arg a : args) {
             String key;
             if (a.name() == null) {
-                if (positional < order.size()) key = order.get(positional).id();
-                else if (positional - order.size() < settings.size()) key = settings.get(positional - order.size()).id();
+                Data.Setting word = wordFor(a.value(), settings, bound.keySet(), c::known);
+                if (word != null) {
+                    key = word.id();
+                    if (positional >= order.size()) positional++;
+                } else if (positional < order.size()) key = order.get(positional++).id();
+                else if (positional - order.size() < settings.size()) key = settings.get(positional++ - order.size()).id();
                 else {
                     c.error("лишний аргумент: у «" + Names.shortName(action.id()) + "» их " + order.size()
-                            + (settings.isEmpty() ? "" : " и " + settings.size() + " настроек"), a.value().span());
+                            + (settings.isEmpty() ? "" : " и " + settings.size() + " настроек"), a.value().span(),
+                            action.plural().isEmpty() ? null : "несколько значений пишут списком: [a, b]");
                     continue;
                 }
-                positional++;
             } else {
                 key = a.name().toLowerCase(Locale.ROOT);
                 if (action.arg(key) == null && action.setting(key) == null) {
@@ -512,8 +593,11 @@ public final class Compiler {
         if (into != null) c.writing = into;
         for (Data.Arg arg : list) {
             Expr e = bound.get(arg.id());
-            if (e == null) continue;
-            c.unit = unit(arg, bound);
+            if (e == null) {
+                if (arg.slotted() && Wire.WHOLE_GRID.contains(action.id())) values.add(entry(arg.id(), array(grid(new ArrayList<>(), arg))));
+                continue;
+            }
+            c.unit = unit(arg, bound.get("time_unit") == null ? null : c.resolved(bound.get("time_unit")));
             Object v = c.guard(() -> argument(action, arg, e));
             if (v != null) values.add(entry(arg.id(), v));
         }
@@ -533,16 +617,42 @@ public final class Compiler {
         return values;
     }
 
-    private static double unit(Data.Arg arg, Map<String, Expr> bound) {
+    private static boolean same(Expr e, Ast.Var v) {
+        return e instanceof Ast.Var x && x.name().equals(v.name()) && Objects.equals(x.scope(), v.scope());
+    }
+
+    private static boolean repeatsTarget(Data.Action action, List<Arg> args, Ast.Var into) {
+        return action.canonical().equals(Wire.APPEND) && args.size() > 1 && args.get(0).name() == null && same(args.get(0).value(), into);
+    }
+
+    private boolean skipsExtra(Data.Action action, List<Data.Arg> order, List<Arg> args, Ast.Var into) {
+        if (!Wire.IN_PLACE.contains(action.canonical()) || !Data.VARIABLE.equals(order.get(0).kind())) return false;
+        if (args.size() < 2 || args.size() >= order.size() || args.get(0).name() != null || args.get(1).name() != null) return false;
+        Expr second = args.get(1).value();
+        if (same(args.get(0).value(), into)) return !same(second, into);
+        Kinds.Problem misfit = Kinds.check(order.get(1).kind(), Kinds.slot(kindOf(second)), null);
+        return misfit != null && misfit.error();
+    }
+
+    public static Data.Setting wordFor(Expr value, List<Data.Setting> settings, Set<String> taken,
+                                       Predicate<String> variable) {
+        if (!(value instanceof Ast.Var v) || v.quoted() || v.scope() != null || variable.test(v.name())) return null;
+        String word = v.name().toLowerCase(Locale.ROOT);
+        for (Data.Setting s : settings) if (!taken.contains(s.id()) && s.options().containsKey(word)) return s;
+        return null;
+    }
+
+    private static double unit(Data.Arg arg, Expr timeUnit) {
         String label = arg.label().toLowerCase(Locale.ROOT);
         if (label.contains("миллисекунд")) return 1;
         if (label.contains("секунд")) return 1000;
         if (label.contains("минут")) return 60_000;
-        if (bound.get("time_unit") instanceof Ast.Var v) {
-            if (v.name().equals("seconds")) return 1000;
-            if (v.name().equals("minutes")) return 60_000;
-        }
-        return 50;
+        String word = timeUnit instanceof Ast.Var v ? v.name() : timeUnit instanceof Ast.Str s ? s.text() : "";
+        return switch (word.toLowerCase(Locale.ROOT)) {
+            case "seconds" -> 1000;
+            case "minutes" -> 60_000;
+            default -> 50;
+        };
     }
 
     private void swapped(Data.Action action, List<Data.Arg> list, List<Arg> args) {
@@ -564,6 +674,27 @@ public final class Compiler {
     }
 
     String kindOf(Expr e) {
+        return kindOf(e, false);
+    }
+
+    String likelyKind(Expr e) {
+        return kindOf(e, true);
+    }
+
+    boolean unsure(Expr e) {
+        return e instanceof Ast.Binary b && b.op().equals("+") && (likelyKind(b.left()) == null || likelyKind(b.right()) == null);
+    }
+
+    private String returned(Ast.Call call) {
+        if (c.userCall(call)) {
+            String kind = c.likely.get(Wire.RESULT + call.shown());
+            return "?".equals(kind) ? null : kind;
+        }
+        Names.Entry e = c.names.resolve(Names.Space.ACTION, call.shown());
+        return e == null ? null : c.data.returned(e.action());
+    }
+
+    private String kindOf(Expr e, boolean likely) {
         Expr inner = e instanceof Ast.Targeted t ? t.inner() : e;
         return switch (inner) {
             case Ast.Num n -> n.millis() == null && (n.text().equals("0") || n.text().equals("1")) ? Kinds.BOOL : Kinds.NUMBER;
@@ -573,11 +704,11 @@ public final class Compiler {
             case Ast.Path p when p.parts().size() == 2 && p.parts().get(0).equals("value") -> Kinds.ofGameValue(c.data, p.parts().get(1));
             case Ast.Var v -> {
                 Expr k = c.constant(v);
-                if (k != null) yield kindOf(k);
+                if (k != null) yield kindOf(k, likely);
                 if (!v.quoted() && !c.known(v.name()) && Context.truth(v.name()) != null) yield Kinds.BOOL;
-                yield c.kind(v);
+                yield likely ? c.likely(v) : c.kind(v);
             }
-            case Ast.Call call when call.qualifier() == null && !call.quoted() && !c.functions.containsKey(call.name()) -> switch (call.name()) {
+            case Ast.Call call when call.qualifier() == null && !c.userCall(call) -> switch (call.name()) {
                 case "loc" -> Kinds.LOCATION;
                 case "vec" -> Kinds.VECTOR;
                 case "item" -> Kinds.ITEM;
@@ -586,19 +717,24 @@ public final class Compiler {
                 case "particle" -> Kinds.PARTICLE;
                 case "potion" -> Kinds.POTION;
                 case "num", "len" -> Kinds.NUMBER;
-                default -> c.formula.mathCall(call) ? Kinds.NUMBER : c.conditions.conditionName(call) ? Kinds.BOOL : null;
+                case "literal" -> call.args().size() == 1 ? kindOf(call.args().get(0).value(), likely) : null;
+                default -> c.formula.mathCall(call) ? Kinds.NUMBER : c.conditions.conditionName(call) ? Kinds.BOOL
+                        : likely ? returned(call) : null;
             };
+            case Ast.Call call when likely -> returned(call);
             case Ast.Unary u when u.op().equals("not") -> Kinds.BOOL;
-            case Ast.Unary u -> Kinds.VECTOR.equals(kindOf(u.operand())) ? null : Kinds.NUMBER;
+            case Ast.Unary u -> Kinds.VECTOR.equals(kindOf(u.operand(), likely)) ? null : Kinds.NUMBER;
             case Ast.Binary b when Formula.ARITHMETIC.contains(b.op()) -> {
-                String l = kindOf(b.left()), r = kindOf(b.right());
+                String l = kindOf(b.left(), likely), r = kindOf(b.right(), likely);
+                if (likely && Kinds.LOCATION.equals(r) && Kinds.VECTOR.equals(l)) yield Kinds.LOCATION;
+                if (likely && Kinds.LOCATION.equals(l) && r == null) yield Kinds.LOCATION;
                 if (Kinds.VECTOR.equals(l) || Kinds.VECTOR.equals(r))
                     yield Kinds.LOCATION.equals(l) ? Kinds.LOCATION : Kinds.VECTOR;
                 yield Kinds.NUMBER;
             }
             case Ast.Binary b -> Kinds.BOOL;
             case Ast.Ternary t -> {
-                String a = kindOf(t.then()), b = kindOf(t.otherwise());
+                String a = kindOf(t.then(), likely), b = kindOf(t.otherwise(), likely);
                 yield a != null && a.equals(b) ? a : null;
             }
             default -> null;
@@ -607,18 +743,49 @@ public final class Compiler {
 
     private record Op(Data.Action action, List<Arg> args) {}
 
-    private Op vectorOp(Ast.Binary b) {
-        String l = kindOf(b.left()), r = kindOf(b.right());
+    boolean vectorMath(Ast.Binary b) {
+        return vectorOp(b, likelyKind(b.left()), likelyKind(b.right()), null) != null;
+    }
+
+    private Op vectorOp(Ast.Binary b, String wanted) {
+        Op op = vectorOp(b, likelyKind(b.left()), likelyKind(b.right()), wanted);
+        if (op == null) return vectorOp(b, kindOf(b.left()), kindOf(b.right()), null);
+        if (op.action().id().equals("set_variable_add_vectors") && !Kinds.VECTOR.equals(wanted)) warnUnsure(b);
+        return op;
+    }
+
+    private void warnUnsure(Ast.Binary b) {
+        Expr side = likelyKind(b.left()) == null ? b.left() : likelyKind(b.right()) == null ? b.right() : null;
+        if (!(side instanceof Ast.Var v) || c.constant(v) != null) return;
+        c.warning("не понятно, «" + v.name() + "» — место или вектор: собрано как сумма векторов", v.span(),
+                c.params.containsKey(v.name()) ? "допиши вид параметра: " + v.name() + ": location" : "объяви вид: save " + v.name() + ": location");
+    }
+
+    private Op shifted(Expr location, Expr vector) {
+        return op("set_variable_shift_location_on_vector", named("location", location), named("vector", vector));
+    }
+
+    private Op vectorOp(Ast.Binary b, String l, String r, String wanted) {
         boolean lv = Kinds.VECTOR.equals(l), rv = Kinds.VECTOR.equals(r);
+        boolean ll = Kinds.LOCATION.equals(l), rl = Kinds.LOCATION.equals(r), place = Kinds.LOCATION.equals(wanted);
         boolean ln = l == null || Kinds.NUMBER.equals(Kinds.slot(l)), rn = r == null || Kinds.NUMBER.equals(Kinds.slot(r));
         Ast.ListLit both = new Ast.ListLit(List.of(b.left(), b.right()), b.span());
-        if (Kinds.LOCATION.equals(l) && rv && b.op().equals("+"))
-            return op("set_variable_shift_location_on_vector", named("location", b.left()), named("vector", b.right()));
+        if (b.op().equals("+")) {
+            if (ll && (rv || r == null) || rv && l == null && place) return shifted(b.left(), b.right());
+            if ((lv || l == null) && rl || lv && r == null && place) return shifted(b.right(), b.left());
+        }
+        if (ll && (rv || r == null) && b.op().equals("-"))
+            return shifted(b.left(), new Ast.Binary("*", b.right(), new Ast.Num("-1", b.span()), b.span()));
+        if (lv && Kinds.NUMBER.equals(Kinds.slot(r)) && b.op().equals("/"))
+            return op("set_variable_multiply_vector", named("vector", b.left()),
+                    named("multiplier", new Ast.Binary("/", new Ast.Num("1", b.span()), b.right(), b.span())));
         if ((lv && (rv || r == null) || rv && l == null) && b.op().equals("+")) return op("set_variable_add_vectors", named("vectors", both));
         if ((lv && (rv || r == null) || rv && l == null) && b.op().equals("-")) return op("set_variable_subtract_vectors", named("vectors", both));
         if (lv && rn && b.op().equals("*")) return op("set_variable_multiply_vector", named("vector", b.left()), named("multiplier", b.right()));
         if (rv && ln && b.op().equals("*")) return op("set_variable_multiply_vector", named("vector", b.right()), named("multiplier", b.left()));
-        if (lv && rv && b.op().equals("/")) return op("set_variable_divide_vector", named("vector", b.left()), named("divider", b.right()));
+        if ((lv || l == null) && rv && b.op().equals("/")) return op("set_variable_divide_vector", named("vector", b.left()), named("divider", b.right()));
+        if (l == null && Kinds.VECTOR.equals(wanted) && rn && r != null && b.op().equals("*"))
+            return op("set_variable_multiply_vector", named("vector", b.left()), named("multiplier", b.right()));
         return null;
     }
 
@@ -629,7 +796,7 @@ public final class Compiler {
     private Object argument(Data.Action action, Data.Arg arg, Expr e) {
         if (!action.plural(arg.id())) return e instanceof Ast.Blank ? null : value(e, arg.kind());
         List<Object> cells = new ArrayList<>();
-        List<Expr> items = e instanceof Ast.ListLit l ? l.items() : List.of(e);
+        List<Expr> items = c.resolved(e) instanceof Ast.ListLit l ? l.items() : List.of(e);
         for (Expr item : items) {
             Object v = item instanceof Ast.Blank ? null : c.guard(() -> value(item, arg.kind()));
             if (v == null) cells.add(arg.slotted() ? obj("type", "item", "item", Items.EMPTY) : obj());
@@ -637,11 +804,41 @@ public final class Compiler {
         }
         if (arg.capacity() > 0 && cells.size() > arg.capacity())
             c.error("в «" + arg.id() + "» помещается " + arg.capacity() + ", а передано " + cells.size(), e.span());
+        if (arg.slotted()) {
+            List<Object> grid = grid(cells, arg);
+            boolean blank = grid.stream().allMatch(Compiler::emptyItem);
+            return blank && !Wire.WHOLE_GRID.contains(action.id()) ? null : array(grid);
+        }
+        while (!cells.isEmpty() && Wire.hole(cells.get(cells.size() - 1))) cells.remove(cells.size() - 1);
         return array(cells);
+    }
+
+    private static List<Object> grid(List<Object> cells, Data.Arg arg) {
+        while (!cells.isEmpty() && emptyItem(cells.get(cells.size() - 1))) cells.remove(cells.size() - 1);
+        while (cells.size() < arg.capacity()) cells.add(obj("type", "item", "item", Items.EMPTY));
+        return cells;
+    }
+
+    private static boolean emptyItem(Object cell) {
+        return cell instanceof Map<?, ?> m && Items.EMPTY.equals(m.get("item"));
+    }
+
+    Object boundMarker(String option, Ast.Var v) {
+        Map<String, Object> variable = Json.object(variable(v, null));
+        Map<String, Object> marker = enumValue(option.toUpperCase(Locale.ROOT));
+        marker.put("variable", variable.get("variable"));
+        marker.put("scope", variable.get("scope"));
+        return marker;
+    }
+
+    boolean markerVariable(Set<String> options, Expr e) {
+        return e instanceof Ast.Var v && c.constant(v) == null && (v.scope() != null || c.known(v.name()))
+                && !(!v.quoted() && options.contains(v.name().toLowerCase(Locale.ROOT)));
     }
 
     private Object marker(Data.Setting s, Expr e) {
         if (e instanceof Ast.Call call && call.qualifier() == null && call.name().equals("enum")) return value(call, null);
+        if (markerVariable(s.options().keySet(), e)) return boundMarker(s.fallback(), (Ast.Var) e);
         String word = switch (e) {
             case Ast.Var v when c.constant(v) instanceof Ast.Str str -> str.text();
             case Ast.Var v when !v.quoted() -> v.name();
@@ -660,7 +857,7 @@ public final class Compiler {
     }
 
     private void flow(Ast.Var v, String slot) {
-        String known = Kinds.slot(c.kind(v));
+        String known = Kinds.slot(c.shown(v));
         if (known == null || known.equals(Kinds.LIST) || slot.equals(Data.VARIABLE)) return;
         Kinds.Problem p = Kinds.check(slot, known, null);
         if (p == null) return;
@@ -705,12 +902,14 @@ public final class Compiler {
                 yield text(s.text(), Context.parsing(s.prefix()));
             }
             case Ast.Binary b when Formula.ARITHMETIC.contains(b.op()) -> {
-                Op op = vectorOp(b);
+                Op op = vectorOp(b, kind);
                 if (op == null) yield c.formula.math(b);
                 Ast.Var tmp = c.temp(b.span());
                 c.need(b.span()).add(obj("action", op.action().id(), "values", bind(op.action(), op.args(), tmp, b.span())));
                 yield variable(tmp, null);
             }
+            case Ast.Unary u when u.op().equals("-") && Kinds.VECTOR.equals(likelyKind(u.operand())) ->
+                    plainValue(new Ast.Binary("*", u.operand(), new Ast.Num("-1", u.span()), u.span()), kind);
             case Ast.Unary u when u.op().equals("-") && !(u.operand() instanceof Ast.Num) -> c.formula.math(u);
             case Ast.Call call when c.formula.mathCall(call) -> c.formula.math(call);
             case Ast.Var v -> variable(v, kind);
@@ -723,7 +922,7 @@ public final class Compiler {
                 if (t.inner() instanceof Ast.Path p) yield path(p, t.target(), t.targetSpan());
                 if (t.inner() instanceof Ast.Call call && c.conditions.conditionName(call)) yield c.conditions.conditionValue(t);
                 if (t.inner() instanceof Ast.Call call && (call.qualifier() != null || !(Wire.VALUES.contains(call.name())
-                        || c.functions.containsKey(call.name()) || call.quoted() || c.formula.mathCall(call))))
+                        || c.userCall(call) || c.formula.mathCall(call))))
                     yield c.calls.action(call, t.target(), t.targetSpan());
                 throw c.stop("цель @" + t.target() + " у значения бывает у игрового значения, условия и действия: @"
                         + t.target() + " value.current_health", t.span());
@@ -752,10 +951,11 @@ public final class Compiler {
         }
         if (scope.equals("local")) c.locals.use(v.name(), v.span(), Data.VARIABLE.equals(kind));
         if (v != c.writing) c.lints.read(v.name());
+        c.lints.name(v.name());
         return obj("type", "variable", "variable", v.name(), "scope", scope);
     }
 
-    private Object list(Ast.ListLit l) {
+    private List<Object> cells(Ast.ListLit l) {
         List<Object> cells = new ArrayList<>();
         for (Expr item : l.items()) {
             Object v = item instanceof Ast.Blank ? null : c.guard(() -> value(item, null));
@@ -763,11 +963,58 @@ public final class Compiler {
         }
         while (!cells.isEmpty() && cells.get(cells.size() - 1) instanceof Map<?, ?> m && m.isEmpty())
             cells.remove(cells.size() - 1);
-        return obj("type", "array", "values", cells);
+        return cells;
     }
 
-    private Object map(Ast.MapLit m) {
-        Map<String, Object> entries = new LinkedHashMap<>();
+    private boolean literal() {
+        return c.storing || c.prelude == null;
+    }
+
+    Object plainList(Ast.ListLit l) {
+        return array(cells(l));
+    }
+
+    Object stored(Expr e) {
+        boolean was = c.storing;
+        c.storing = true;
+        try {
+            return value(e, null);
+        } finally {
+            c.storing = was;
+        }
+    }
+
+    private Object list(Ast.ListLit l) {
+        List<Object> cells = cells(l);
+        if (literal() || cells.stream().noneMatch(Wire::dynamic)) return array(cells);
+        Ast.Var tmp = c.temp(l.span());
+        c.need(l.span()).addAll(builtList(variable(tmp, null), cells));
+        return variable(tmp, null);
+    }
+
+    private List<Object> builtList(Object into, List<Object> cells) {
+        Data.Action create = c.data.actions().get("set_variable_create_list");
+        Data.Action append = c.data.actions().get("set_variable_append_value");
+        int room = create.arg("values").capacity();
+        if (room <= 0) room = Math.max(cells.size(), 1);
+        List<Object> ops = new ArrayList<>();
+        for (int from = 0; from == 0 || from < cells.size(); from += room) {
+            List<Object> part = new ArrayList<>(cells.subList(from, Math.min(cells.size(), from + room)));
+            ops.add(obj("action", (from == 0 ? create : append).id(), "values",
+                    new ArrayList<>(List.of(entry("variable", into), entry("values", array(part))))));
+        }
+        return ops;
+    }
+
+    private record Pairs(List<Object> keys, List<Object> values) {
+        boolean dynamic() {
+            return keys.stream().anyMatch(Wire::dynamic) || values.stream().anyMatch(Wire::dynamic);
+        }
+    }
+
+    private Pairs pairs(Ast.MapLit m) {
+        Pairs pairs = new Pairs(new ArrayList<>(), new ArrayList<>());
+        Set<String> seen = new LinkedHashSet<>();
         for (int i = 0; i < m.keys().size(); i++) {
             Expr k = m.keys().get(i);
             Object key = c.guard(() -> value(k, null));
@@ -777,11 +1024,76 @@ public final class Compiler {
             }
             Expr ve = m.values().get(i);
             Object v = ve instanceof Ast.Blank ? null : c.guard(() -> value(ve, null));
-            String field = Json.write(key);
-            if (entries.containsKey(field)) c.error("ключ повторяется", k.span());
-            entries.put(field, v == null ? obj() : v);
+            if (!seen.add(Json.write(key))) c.error("ключ повторяется", k.span());
+            pairs.keys().add(key);
+            pairs.values().add(v == null ? obj() : v);
         }
+        return pairs;
+    }
+
+    private static Object plainMap(Pairs pairs) {
+        Map<String, Object> entries = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.keys().size(); i++) entries.put(Json.write(pairs.keys().get(i)), pairs.values().get(i));
         return obj("type", "map", "values", entries);
+    }
+
+    private static Object builtMap(Object into, Pairs pairs) {
+        List<Object> values = new ArrayList<>(pairs.values());
+        while (!values.isEmpty() && Wire.hole(values.get(values.size() - 1))) values.remove(values.size() - 1);
+        return obj("action", "set_variable_create_map_from_values", "values", new ArrayList<>(List.of(entry("variable", into),
+                entry("keys", array(pairs.keys())), entry("values", array(values)))));
+    }
+
+    private Object map(Ast.MapLit m) {
+        Pairs pairs = pairs(m);
+        if (literal() || !pairs.dynamic()) return plainMap(pairs);
+        Ast.Var tmp = c.temp(m.span());
+        c.need(m.span()).add(builtMap(variable(tmp, null), pairs));
+        return variable(tmp, null);
+    }
+
+    private Object receiver(Ast.Var target) {
+        Ast.Var wasWriting = c.writing;
+        c.writing = target;
+        Object into = variable(target, Data.VARIABLE);
+        c.writing = wasWriting;
+        return into;
+    }
+
+    private static Map<String, Object> setValue(Object into, Object value) {
+        return obj("action", "set_variable_value", "values", new ArrayList<>(List.of(entry("variable", into), entry("value", value))));
+    }
+
+    void snapshot(Ast.Var v) {
+        if (c.snapshots.containsKey(v)) return;
+        Object value = variable(v, null);
+        Ast.Var tmp = c.temp(v.span());
+        String kind = c.kind(v);
+        if (kind != null) c.kinds.put(tmp.name(), kind);
+        c.prelude.add(setValue(variable(tmp, null), value));
+        c.snapshots.put(v, tmp);
+    }
+
+    Object copied(Ast.Var v) {
+        Object value = variable(v, null);
+        Ast.Var tmp = c.temp(v.span());
+        c.need(v.span()).add(setValue(variable(tmp, null), value));
+        return variable(tmp, null);
+    }
+
+    Object settled(Object v, Span at) {
+        if (!Wire.lazy(v)) return v;
+        Ast.Var tmp = c.temp(at);
+        c.need(at).add(setValue(variable(tmp, null), v));
+        return variable(tmp, null);
+    }
+
+    Object held(Expr e) {
+        Object v = plainValue(e, null);
+        if (v instanceof Map<?, ?> m && "variable".equals(m.get("type"))) return v;
+        Ast.Var tmp = c.temp(e.span());
+        c.need(e.span()).add(setValue(variable(tmp, null), v));
+        return variable(tmp, null);
     }
 
     private Object path(Ast.Path p, String target, Span targetSpan) {
@@ -811,7 +1123,7 @@ public final class Compiler {
         if (!a.pinned() && c.constant(target) != null) return;
         Expr whole = a.op().equals("=") ? a.value() : a.op().equals("%=") ? null
                 : new Ast.Binary(a.op().substring(0, 1), target, a.value(), a.span());
-        Op vector = whole instanceof Ast.Binary w && Formula.ARITHMETIC.contains(w.op()) ? vectorOp(w) : null;
+        Op vector = whole instanceof Ast.Binary w && Formula.ARITHMETIC.contains(w.op()) ? vectorOp(w, c.slot(a.name())) : null;
         if (vector != null) {
             out.add(obj("action", vector.action().id(), "values", bind(vector.action(), vector.args(), target, a.span())));
             return;
@@ -824,7 +1136,7 @@ public final class Compiler {
         }
         if (a.op().equals("=") && a.value() instanceof Ast.Binary b && Wire.COMPOUND.containsKey(b.op() + "=")
                 && b.left() instanceof Ast.Var v && v.name().equals(a.name()) && Objects.equals(v.scope(), target.scope())
-                && !c.conditions.isCondition(b.right())) {
+                && !c.snapshots.containsKey(v) && !c.conditions.isCondition(b.right())) {
             assign(new Ast.Assign(a.scope(), a.name(), a.nameSpan(), b.op() + "=", b.right(), a.span(), a.pinned()), out);
             return;
         }
@@ -835,7 +1147,7 @@ public final class Compiler {
                     bind(action, List.of(new Arg(null, null, both)), target, a.span())));
             return;
         }
-        Expr value = a.value();
+        Expr value = a.value() instanceof Ast.Index i && c.item(i) != null ? c.resolved(i) : a.value();
         if (c.conditions.isCondition(value)) {
             Ast.Var wasWriting = c.writing;
             c.writing = target;
@@ -853,10 +1165,26 @@ public final class Compiler {
             out.add(indexRead(i, target));
             return;
         }
+        if (value instanceof Ast.ListLit l) {
+            List<Object> cells = cells(l);
+            Object into = receiver(target);
+            if (!c.storing && cells.stream().anyMatch(Wire::dynamic)) out.addAll(builtList(into, cells));
+            else out.add(setValue(into, array(cells)));
+            return;
+        }
+        if (value instanceof Ast.MapLit m) {
+            Pairs pairs = pairs(m);
+            Object into = receiver(target);
+            out.add(!c.storing && pairs.dynamic() ? builtMap(into, pairs) : setValue(into, plainMap(pairs)));
+            return;
+        }
+        if (value instanceof Ast.Call call && c.values.built(call)) {
+            out.add(c.values.build(call, target));
+            return;
+        }
         Expr inner = value instanceof Ast.Targeted t ? t.inner() : value;
-        if (inner instanceof Ast.Call call && !(call.qualifier() == null
-                && (Wire.VALUES.contains(call.name()) || c.functions.containsKey(call.name()) || call.quoted()
-                || c.formula.mathCall(call)))) {
+        if (inner instanceof Ast.Call call && !c.userCall(call) && !(call.qualifier() == null
+                && (Wire.VALUES.contains(call.name()) || c.formula.mathCall(call)))) {
             Data.Action action = action(call);
             Map<String, Object> op = obj("action", action.id(), "values", bind(action, call.args(), target, call.span()));
             if (value instanceof Ast.Targeted t) op.put("selection", selection(action, t.target(), t.targetSpan()));
@@ -870,16 +1198,19 @@ public final class Compiler {
 
     private String shapeOf(Ast.Index i) {
         if (i.target() instanceof Ast.Var v) {
-            String s = c.shapes.get(v.name());
+            String s = c.shape(v.name());
             if ("list".equals(s) || "map".equals(s)) return s;
         }
         Expr idx = i.index();
         if (idx instanceof Ast.Num || (idx instanceof Ast.Unary u && u.op().equals("-"))
                 || (idx instanceof Ast.Binary b && Formula.ARITHMETIC.contains(b.op()))) return "list";
         if (idx instanceof Ast.Str) return "map";
+        String key = Kinds.slot(kindOf(idx));
+        if (Kinds.TEXT.equals(key)) return "map";
+        if (Kinds.NUMBER.equals(key)) return "list";
         String name = i.target() instanceof Ast.Var v ? v.name() : "это значение";
         throw c.stop("не понятно, «" + name + "» — список или словарь", i.span(),
-                "задай его где-нибудь в коде: " + name + " = [] или " + name + " = {} — или пиши get_list_value / get_map_value");
+                "скажи это при объявлении: save " + name + ": map или save " + name + ": list");
     }
 
     private Map<String, Object> indexRead(Ast.Index i, Ast.Var into) {
@@ -890,6 +1221,19 @@ public final class Compiler {
         List<Arg> args = list ? List.of(named("list", i.target()), named("number", i.index()))
                 : List.of(named("map", i.target()), named("key", i.index()));
         return obj("action", action.id(), "values", bind(action, args, into, i.span()));
+    }
+
+    private Ast.Index onceIndexed(Ast.Index i, List<Object> out) {
+        Expr from = i.target() instanceof Ast.Index inner ? onceIndexed(inner, out) : i.target();
+        Expr index = i.index();
+        if (!c.calls.pure(index)) {
+            Ast.Var tmp = c.temp(index.span());
+            String kind = kindOf(index);
+            if (kind != null) c.kinds.put(tmp.name(), kind);
+            assign(new Ast.Assign(null, tmp.name(), index.span(), "=", index, index.span()), out);
+            index = tmp;
+        }
+        return from == i.target() && index == i.index() ? i : new Ast.Index(from, index, i.span());
     }
 
     private void write(Ast.Index target, Expr value, List<Object> out) {
@@ -951,13 +1295,12 @@ public final class Compiler {
                         c.error("значение возвращает только функция — из " + (c.current == null ? "события" : "процесса")
                                 + " его некому вернуть", j.span());
                     else assign(new Ast.Assign(null, Wire.RESULT + c.current.name(), j.span(), "=", j.value(), j.span()), out);
-                } else if (c.current == null) {
-                    c.error("return бывает только в функции", j.span());
-                } else if (c.returning.contains(c.current.name())) {
+                } else if (c.current != null && !c.current.process() && c.returning.contains(c.current.name())) {
                     c.error("«" + c.current.name() + "» возвращает значение — напиши return …", j.span(),
                             "если вернуть нечего, верни 0");
                 }
-                out.add(obj("action", "control_return_function", "values", new ArrayList<>()));
+                boolean function = c.current != null && !c.current.process();
+                out.add(obj("action", function ? "control_return_function" : "control_end_thread", "values", new ArrayList<>()));
             }
             case "break" -> {
                 if (c.loops == 0) c.error("break бывает только внутри повторения", j.span());

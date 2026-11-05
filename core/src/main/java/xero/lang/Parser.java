@@ -11,11 +11,22 @@ import xero.lang.Ast.Stmt;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public final class Parser {
     private static final Set<String> COMPARE = Set.of("==", "!=", ">", ">=", "<", "<=");
     private static final Set<String> ASSIGN = Set.of("=", "+=", "-=", "*=", "/=", "%=");
+    private static final Map<String, String> SHAPES = Map.ofEntries(
+            Map.entry("map", "map"), Map.entry("словарь", "map"),
+            Map.entry("list", "list"), Map.entry("array", "list"), Map.entry("список", "list"),
+            Map.entry("location", "location"), Map.entry("loc", "location"), Map.entry("место", "location"),
+            Map.entry("местоположение", "location"), Map.entry("vector", "vector"), Map.entry("vec", "vector"),
+            Map.entry("вектор", "vector"), Map.entry("number", "number"), Map.entry("число", "number"),
+            Map.entry("text", "text"), Map.entry("текст", "text"), Map.entry("item", "item"), Map.entry("предмет", "item"),
+            Map.entry("block", "block"), Map.entry("блок", "block"), Map.entry("sound", "sound"), Map.entry("звук", "sound"),
+            Map.entry("particle", "particle"), Map.entry("частица", "particle"), Map.entry("potion", "potion"),
+            Map.entry("зелье", "potion"));
 
     private static final class Failure extends RuntimeException {
         private static final long serialVersionUID = 1L;
@@ -83,7 +94,8 @@ public final class Parser {
                 && (peek(1).kind() == Token.Kind.IDENT || peek(1).kind() == Token.Kind.NAME)) {
             next();
             Token name = next();
-            return new Ast.Global(t.text(), name.text(), span(t).to(span(name)));
+            String shape = shape();
+            return new Ast.Global(t.text(), name.text(), shape, span(t).to(previousSpan()));
         }
         if (t.keyword("when")) {
             next();
@@ -130,9 +142,10 @@ public final class Parser {
     }
 
     private Param param() {
-        Token name = expectIdent("ожидалось имя параметра");
+        Token name = peek().kind() == Token.Kind.NAME ? next() : expectIdent("ожидалось имя параметра");
         String type = null;
         List<String> options = null;
+        int cells = 0;
         if (peek().is(":")) {
             next();
             type = expectIdent("после «:» нужен вид значения, например number").text();
@@ -144,13 +157,30 @@ public final class Parser {
                     options.add(s.text());
                 }
             }
+            if (peek().is("[") && !peek().newline()) cells = cells();
         }
+        Ast.Str about = peek().kind() == Token.Kind.STRING ? about() : null;
         Expr fallback = null;
         if (peek().is("=")) {
             next();
             fallback = expr();
         }
-        return new Param(name.text(), type, options, fallback, span(name));
+        return new Param(name.text(), type, options, fallback, span(name), about, cells);
+    }
+
+    private int cells() {
+        next();
+        Token size = next();
+        if (size.kind() != Token.Kind.NUMBER || !size.text().matches("[1-9][0-9]{0,1}"))
+            throw fail("в скобках — сколько значений принимает параметр: text[12]", size);
+        expect("]", "ожидалась «]»");
+        return Integer.parseInt(size.text());
+    }
+
+    private Ast.Str about() {
+        Token at = peek();
+        if (atom() instanceof Ast.Str s && !s.interpolated()) return s;
+        throw fail("описание параметра — обычная строка, без ${…}", at);
     }
 
     private Block block() {
@@ -175,6 +205,7 @@ public final class Parser {
         Token t = peek();
         if (t.keyword("const") && peek(1).kind() == Token.Kind.IDENT && peek(2).is("="))
             throw fail("const пишут вне when, func и process — в начале файла", t);
+        if (assignsWord()) return assignment(t);
         if (t.keyword("if")) return ifStatement();
         if (t.keyword("repeat") && !peek(1).is(".")) {
             next();
@@ -212,6 +243,23 @@ public final class Parser {
             return new Ast.Start(full.text(), name.kind() == Token.Kind.NAME, full.span(), args,
                     span(t).to(previousSpan()));
         }
+        return assignment(t);
+    }
+
+    private boolean assignsWord() {
+        Token t = peek();
+        if (t.kind() != Token.Kind.IDENT || !Keywords.reserved(t.text())) return false;
+        return peek(1).kind() == Token.Kind.SYMBOL && ASSIGN.contains(peek(1).text()) || multiAssignAt() > 0;
+    }
+
+    private void word(Token name) {
+        if (name.kind() != Token.Kind.IDENT || !Keywords.reserved(name.text()) || name.text().equals("_")) return;
+        String quoted = "`" + name.text() + "`";
+        diagnostics.add(new Diagnostic(false, "«" + name.text() + "» — слово языка: имя переменной лучше брать другое", name.start(),
+                name.end(), "или в обратных кавычках: " + quoted, List.of(Diagnostic.Fix.replace(name.start(), name.end(), quoted))));
+    }
+
+    private Stmt assignment(Token t) {
         int multi = multiAssignAt();
         if (multi > 0) {
             String scope = null;
@@ -224,6 +272,7 @@ public final class Parser {
             List<Span> spans = new ArrayList<>();
             while (true) {
                 Token name = next();
+                word(name);
                 names.add(name.text());
                 spans.add(span(name));
                 if (!peek().is(",")) break;
@@ -257,10 +306,12 @@ public final class Parser {
                 return new Ast.Assign(t.text(), name.text(), span(name), op.text(), value,
                         span(t).to(value.span()));
             }
-            return new Ast.Declare(t.text(), name.text(), span(t).to(span(name)));
+            String shape = shape();
+            return new Ast.Declare(t.text(), name.text(), shape, span(t).to(previousSpan()));
         }
         if ((t.kind() == Token.Kind.IDENT || t.kind() == Token.Kind.NAME)
                 && peek(1).kind() == Token.Kind.SYMBOL && ASSIGN.contains(peek(1).text())) {
+            word(t);
             next();
             Token op = next();
             Expr value = expr();
@@ -316,6 +367,7 @@ public final class Parser {
         Token t = next();
         if (t.kind() != Token.Kind.IDENT && t.kind() != Token.Kind.NAME)
             throw fail("нужно имя переменной цикла", t);
+        word(t);
         return t;
     }
 
@@ -374,13 +426,23 @@ public final class Parser {
         throw fail("после команды нужен перевод строки", t);
     }
 
+    private String shape() {
+        if (!peek().is(":") || peek().newline()) return null;
+        next();
+        Token word = next();
+        String shape = SHAPES.get(word.text());
+        if (shape == null)
+            throw fail("после : идёт вид: list, map, location, vector, number, text, item, block, sound, particle, potion", word);
+        return shape;
+    }
+
     private List<Arg> args() {
         expect("(", "ожидалась «(»");
         nest++;
         List<Arg> args = new ArrayList<>();
         while (!peek().is(")")) {
             if (peek().kind() == Token.Kind.EOF) break;
-            if (peek().kind() == Token.Kind.IDENT && peek(1).is(":")) {
+            if ((peek().kind() == Token.Kind.IDENT || peek().kind() == Token.Kind.NAME) && peek(1).is(":")) {
                 Token name = next();
                 next();
                 args.add(new Arg(name.text(), span(name), expr()));
@@ -592,9 +654,8 @@ public final class Parser {
         }
         if (peek().is("(") && !peek().newline()) {
             boolean category = Keywords.qualifier(parts.get(0));
-            if (category && parts.size() > 2) throw fail("слишком длинное имя: " + String.join(".", parts), t);
             List<Arg> args = args();
-            if (parts.size() > 1 && !category)
+            if (parts.size() > 1 && (!category || parts.size() > 2))
                 return new Ast.Call(null, String.join(".", parts), false, span(t).to(last), args, span(t).to(previousSpan()));
             String qualifier = parts.size() == 2 ? parts.get(0) : null;
             String name = parts.get(parts.size() - 1);

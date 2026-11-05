@@ -58,7 +58,7 @@ final class Lower {
     private static final List<String> POTION_ORDER = List.of("potion", "amplifier", "duration");
     private static final List<String> LOCATION_ORDER = List.of("x", "y", "z", "yaw", "pitch");
     private static final List<String> VECTOR_ORDER = List.of("x", "y", "z");
-    private static final Set<String> PASSED = Set.of("raw", "num", "enum", "len", "call");
+    private static final Set<String> PASSED = Set.of("raw", "num", "enum", "len", "call", "literal");
     private static final String TEMP = "__jc";
     private static final int DEEPEST = 60;
 

@@ -34,18 +34,65 @@ final class Declarations {
     private static final String PARAM_TYPE_LIST =
             "any, text, number, location, vector, block, item, sound, particle, potion, array, map, variable, enum(…)";
 
-    private record Assigned(String name, Expr value, Map<String, String> params, Map<String, String> paramKinds) {}
+    private record Assigned(String name, Expr value, Map<String, String> params, Map<String, String> paramKinds,
+                            String returned, boolean declared) {}
 
     private static final List<String> DECORATORS = List.of(
             LINE, "hidden", "icon", "display_name", "display_description", "description", "values", "twin");
 
     private final Context c;
     private final List<Assigned> assigned = new ArrayList<>();
-    private Map<String, String> own = Map.of();
+    private final List<Assigned> results = new ArrayList<>();
+    private final List<Assigned> inside = new ArrayList<>();
+    private final Map<String, String> stated = new LinkedHashMap<>();
+    private final Map<Ast.Item, Map<String, String>> lineScoped = new java.util.IdentityHashMap<>();
+    private final Map<Map<String, String>, Map<String, String>> lineKinds = new java.util.IdentityHashMap<>();
+    private final Map<Map<String, String>, Map<String, String>> ownKinds2 = new java.util.IdentityHashMap<>();
+    private final Map<Map<String, String>, Map<String, String>> ownLikely = new java.util.IdentityHashMap<>();
+    private final Map<Map<String, String>, Map<String, String>> ownShapes = new java.util.IdentityHashMap<>();
+    private final Map<Map<String, String>, Map<String, String>> ownSlots = new java.util.IdentityHashMap<>();
+    private Map<String, String> own;
     private Map<String, String> ownKinds = Map.of();
+    private List<String> settled = new ArrayList<>();
+    private String function;
 
     Declarations(Context c) {
         this.c = c;
+    }
+
+    Map<String, String> lineScoped(Ast.Item item) {
+        return lineScoped.getOrDefault(item, Map.of());
+    }
+
+    Map<String, String> lineKinds(Ast.Item item) {
+        return lineKinds.getOrDefault(lineScoped.get(item), Map.of());
+    }
+
+    void enter(Ast.Item item) {
+        enter(lineScoped.get(item));
+    }
+
+    void leave() {
+        c.ownKinds = Map.of();
+        c.ownLikely = Map.of();
+        c.ownShapes = Map.of();
+        c.ownSlots = Map.of();
+    }
+
+    private void enter(Map<String, String> key) {
+        c.ownKinds = ownKinds2.getOrDefault(key, Map.of());
+        c.ownLikely = ownLikely.getOrDefault(key, Map.of());
+        c.ownShapes = ownShapes.getOrDefault(key, Map.of());
+        c.ownSlots = ownSlots.getOrDefault(key, Map.of());
+    }
+
+    private static void merge(Map<String, String> table, String name, String kind) {
+        String before = table.get(name);
+        if (before == null) table.put(name, kind == null ? "?" : kind);
+        else if (!before.equals(kind)) {
+            boolean numbers = Kinds.NUMBER.equals(Kinds.slot(before)) && Kinds.NUMBER.equals(Kinds.slot(kind));
+            table.put(name, numbers ? Kinds.NUMBER : "?");
+        }
     }
 
     int line(List<Ast.Decorator> marks, int next) {
@@ -76,7 +123,7 @@ final class Declarations {
     static Map<String, String> paramKinds(Ast.Func f) {
         Map<String, String> out = new LinkedHashMap<>();
         for (Ast.Param p : f.params()) {
-            String type = p.type() == null ? null : PARAM_TYPES.get(p.type().toLowerCase(Locale.ROOT));
+            String type = p.many() ? "array" : p.type() == null ? null : PARAM_TYPES.get(p.type().toLowerCase(Locale.ROOT));
             if (type != null) out.put(p.name(), Kinds.ofParam(type));
         }
         return out;
@@ -119,7 +166,7 @@ final class Declarations {
                 yield true;
             }
             case Ast.Var v -> {
-                Expr k = v.quoted() ? null : c.consts.get(v.name());
+                Expr k = c.constant(v);
                 if (k == null) yield !v.quoted() && Context.truth(v.name()) != null;
                 if (!path.add(v.name())) yield false;
                 boolean ok = constant(k, path);
@@ -131,7 +178,9 @@ final class Declarations {
             case Ast.ListLit l -> l.items().stream().allMatch(x -> constant(x, path));
             case Ast.MapLit m -> m.keys().stream().allMatch(x -> constant(x, path))
                     && m.values().stream().allMatch(x -> constant(x, path));
-            case Ast.Call call -> call.qualifier() == null && Wire.VALUES.contains(call.name()) && !call.name().equals("len");
+            case Ast.Call call -> call.qualifier() == null && Wire.VALUES.contains(call.name()) && (!call.name().equals("len")
+                    || call.args().size() == 1 && constant(call.args().get(0).value(), path));
+            case Ast.Index i -> constant(i.target(), path) && constant(i.index(), path);
             default -> false;
         };
     }
@@ -157,27 +206,118 @@ final class Declarations {
     private void kinds() {
         for (int round = 0; round < 4; round++) {
             Map<String, String> next = new LinkedHashMap<>();
+            Map<Map<String, String>, Map<String, String>> nextOwn = new java.util.IdentityHashMap<>();
             for (Assigned a : assigned) {
                 c.params = a.params();
                 c.paramKinds = a.paramKinds();
+                enter(a.params());
                 String kind = a.value() == null ? null : c.compiler.kindOf(a.value());
-                String before = next.get(a.name());
-                if (before == null) next.put(a.name(), kind == null ? "?" : kind);
-                else if (!before.equals(kind)) {
-                    boolean numbers = Kinds.NUMBER.equals(Kinds.slot(before)) && Kinds.NUMBER.equals(Kinds.slot(kind));
-                    next.put(a.name(), numbers ? Kinds.NUMBER : "?");
-                }
+                merge(next, a.name(), kind);
+                if (!a.declared()) merge(nextOwn.computeIfAbsent(a.params(), k -> new LinkedHashMap<>()), a.name(), kind);
             }
             c.params = Map.of();
             c.paramKinds = Map.of();
-            if (next.equals(c.kinds)) break;
+            leave();
+            next.putAll(stated);
+            boolean same = next.equals(c.kinds) && nextOwn.equals(ownKinds2);
             c.kinds.clear();
             c.kinds.putAll(next);
+            ownKinds2.clear();
+            ownKinds2.putAll(nextOwn);
+            if (same) break;
         }
     }
 
+    private void likely() {
+        for (int round = 0; round < 4; round++) {
+            Map<String, String> next = new LinkedHashMap<>();
+            Map<Map<String, String>, Map<String, String>> nextLine = new java.util.IdentityHashMap<>();
+            Map<Map<String, String>, Map<String, String>> nextOwn = new java.util.IdentityHashMap<>();
+            for (Assigned a : assigned) {
+                note(next, a);
+                if (!a.declared()) note(nextOwn.computeIfAbsent(a.params(), k -> new LinkedHashMap<>()), a);
+            }
+            for (Assigned a : results) note(next, a);
+            for (Assigned a : inside) note(nextLine.computeIfAbsent(a.params(), k -> new LinkedHashMap<>()), a);
+            c.params = Map.of();
+            c.paramKinds = Map.of();
+            c.lineKinds = Map.of();
+            leave();
+            next.putAll(stated);
+            c.likely.clear();
+            c.likely.putAll(next);
+            lineKinds.clear();
+            lineKinds.putAll(nextLine);
+            ownLikely.clear();
+            ownLikely.putAll(nextOwn);
+        }
+        c.likely.values().removeIf(k -> !Kinds.spatial(k));
+        for (Map<String, String> line : lineKinds.values()) line.values().removeIf(k -> !Kinds.spatial(k));
+        for (Map<String, String> table : ownLikely.values()) table.values().removeIf(k -> !Kinds.spatial(k));
+    }
+
+    private void note(Map<String, String> next, Assigned a) {
+        if (a.declared()) return;
+        c.params = a.params();
+        c.paramKinds = a.paramKinds();
+        c.lineKinds = lineKinds.getOrDefault(a.params(), Map.of());
+        enter(a.params());
+        String kind = a.returned() != null ? a.returned() : a.value() == null ? null : c.compiler.likelyKind(a.value());
+        if (Kinds.VECTOR.equals(kind) && Kinds.LOCATION.equals(c.slot(a.name())) && c.compiler.unsure(a.value())) kind = Kinds.LOCATION;
+        String before = next.get(a.name());
+        if (before == null) next.put(a.name(), kind == null ? "?" : kind);
+        else if (!before.equals(kind)) next.put(a.name(), "?");
+    }
+
     private void assign(String name, Expr value) {
-        if (!own.containsKey(name)) assigned.add(new Assigned(name, value, own, ownKinds));
+        assign(name, value, null, false);
+    }
+
+    private void assign(String name, Expr value, String returned, boolean declared) {
+        (own.containsKey(name) ? inside : assigned).add(new Assigned(name, value, own, ownKinds, returned, declared));
+    }
+
+    private void state(String name, String shape) {
+        if (shape == null) return;
+        if (shape.equals("list") || shape.equals("map")) {
+            shape(name, shape);
+            return;
+        }
+        String kind = Kinds.ofParam(shape);
+        if (own.containsKey(name)) {
+            assign(name, null, kind, false);
+            return;
+        }
+        String before = stated.putIfAbsent(name, kind);
+        if (before != null && !before.equals(kind)) stated.put(name, "?");
+    }
+
+    private void slot(String name, String kind) {
+        String before = c.slots.putIfAbsent(name, kind);
+        if (before != null && !before.equals(kind)) c.slots.put(name, "?");
+        Map<String, String> table = ownSlots.computeIfAbsent(own, k -> new LinkedHashMap<>());
+        before = table.putIfAbsent(name, kind);
+        if (before != null && !before.equals(kind)) table.put(name, "?");
+    }
+
+    private void slots(Expr call, boolean into) {
+        Expr inner = call instanceof Ast.Targeted t ? t.inner() : call;
+        if (!(inner instanceof Ast.Call cl) || c.userCall(cl)) return;
+        Names.Entry e = c.names.resolve(Names.Space.ACTION, cl.shown());
+        if (e == null) return;
+        List<Data.Arg> order = new ArrayList<>(e.action().args());
+        if (into) order.remove(e.action().result());
+        int positional = 0;
+        for (Arg a : cl.args()) {
+            Data.Arg target = a.name() != null ? e.action().arg(a.name().toLowerCase(Locale.ROOT))
+                    : positional < order.size() ? order.get(positional) : null;
+            if (a.name() == null) positional++;
+            if (target == null || !Kinds.spatial(target.kind())) continue;
+            List<Expr> items = a.value() instanceof Ast.ListLit l ? l.items()
+                    : e.action().plural(target.id()) ? List.of() : List.of(a.value());
+            for (Expr item : items)
+                if (item instanceof Ast.Var v && v.scope() == null && !own.containsKey(v.name())) slot(v.name(), target.kind());
+        }
     }
 
     private void imported() {
@@ -193,7 +333,7 @@ final class Declarations {
                 }
                 c.external.put(name, m.name());
                 c.origins.put(name, m.file());
-                c.functions.put(name, new Ast.Func(process, name, true, m.at(), importedParams(h, m.at()),
+                (process ? c.processes : c.functions).put(name, new Ast.Func(process, name, true, m.at(), importedParams(h, m.at()),
                         new Ast.Block(List.of(), m.at()), List.of(), m.at()));
             }
         }
@@ -223,14 +363,19 @@ final class Declarations {
             return new Ast.Param(name, "enum", options, new Ast.Str(null, fallback, at), at);
         }
         boolean plural = "plural".equals(p.get("type_key"));
-        String type = !plural && p.get("value_type") instanceof String t && PARAM_TYPES.containsKey(t) && !t.equals("any") ? t : null;
+        String type = p.get("value_type") instanceof String t && PARAM_TYPES.containsKey(t) && !t.equals("any") ? t : null;
         Expr fallback = !plural && "true".equals(p.get("is_required")) ? null : new Ast.Blank(at);
-        return new Ast.Param(name, type, null, fallback, at);
+        return new Ast.Param(name, type, null, fallback, at, null, plural ? slotCount(p) : 0);
+    }
+
+    private static int slotCount(Map<String, Object> plural) {
+        return plural.get("slots") instanceof String slots ? Math.max(1, Json.array(Json.parse(slots)).size()) : 1;
     }
 
     void collect(List<Compiler.Unit> units) {
         constants(units);
         imported();
+        own = new LinkedHashMap<>();
         for (Compiler.Unit u : units) {
             c.diagnostics.file = u.file();
             for (Ast.Item item : u.ast().items()) {
@@ -239,7 +384,8 @@ final class Declarations {
                     c.error("«" + f.name() + "» уже есть в модуле «" + c.external.get(f.name()) + "»", f.nameSpan());
                     continue;
                 }
-                if (c.functions.containsKey(f.name())) {
+                Map<String, Ast.Func> same = f.process() ? c.processes : c.functions;
+                if (same.containsKey(f.name())) {
                     if (!twin(f)) c.error("«" + f.name() + "» уже объявлена выше", f.nameSpan(),
                             "если она и правда задвоена в мире, сверху ставят @twin");
                     continue;
@@ -249,13 +395,8 @@ final class Declarations {
                         || Wire.CALL_WORDS.contains(f.name()))) {
                     c.error("имя «" + f.name() + "» занято действием — назови функцию иначе", f.nameSpan());
                 }
-                c.functions.put(f.name(), withValues(f));
+                same.put(f.name(), withValues(f));
                 if (!f.process() && returnsValue(f.body())) c.returning.add(f.name());
-                for (Ast.Param p : f.params()) {
-                    String type = p.type() == null ? null : PARAM_TYPES.get(p.type().toLowerCase(Locale.ROOT));
-                    if ("array".equals(type)) shape(p.name(), "list");
-                    if ("map".equals(type)) shape(p.name(), "map");
-                }
             }
         }
         Set<String> plain = new LinkedHashSet<>();
@@ -264,21 +405,34 @@ final class Declarations {
             for (Ast.Item item : u.ast().items())
                 if (item instanceof Ast.Global g) {
                     declare(g.name(), g.scope(), g.span());
-                    assign(g.name(), null);
+                    assign(g.name(), null, null, true);
+                    state(g.name(), g.shape());
                 }
         }
+        ownShapes.clear();
         for (Compiler.Unit u : units) {
             c.diagnostics.file = u.file();
             for (Ast.Item item : u.ast().items()) {
                 switch (item) {
-                    case Ast.Event e -> collect(e.body(), plain);
+                    case Ast.Event e -> {
+                        own = new LinkedHashMap<>();
+                        collect(e.body(), plain);
+                        lineScoped.put(e, own);
+                    }
                     case Ast.Func f -> {
-                        Map<String, String> names = new LinkedHashMap<>();
-                        for (Ast.Param p : f.params()) names.put(p.name(), "line");
-                        own = names;
+                        own = new LinkedHashMap<>();
+                        for (Ast.Param p : f.params()) {
+                            own.put(p.name(), "line");
+                            String type = p.type() == null ? null : PARAM_TYPES.get(p.type().toLowerCase(Locale.ROOT));
+                            if ("array".equals(type) || p.many()) shape(p.name(), "list");
+                            if ("map".equals(type) && !p.many()) shape(p.name(), "map");
+                        }
                         ownKinds = paramKinds(f);
+                        for (Ast.Param p : f.params()) assign(p.name(), null);
+                        function = f.process() ? null : f.name();
                         collect(f.body(), plain);
-                        own = Map.of();
+                        function = null;
+                        lineScoped.put(f, own);
                         ownKinds = Map.of();
                     }
                     case Ast.Global g -> { }
@@ -288,13 +442,22 @@ final class Declarations {
             }
         }
         for (String name : plain) c.variables.putIfAbsent(name, "local");
+        for (String name : c.variables.keySet()) if (name.startsWith(Wire.TEMP)) c.reserved.add(name);
+        for (Map<String, String> table : lineScoped.values())
+            for (String name : table.keySet()) if (name.startsWith(Wire.TEMP)) c.reserved.add(name);
+        c.reserved.addAll(c.pinned);
         for (String f : c.returning) c.variables.putIfAbsent(Wire.RESULT + f, "local");
         kinds();
+        likely();
     }
 
     void shape(String name, String kind) {
         String before = c.shapes.putIfAbsent(name, kind);
         if (before != null && !before.equals(kind)) c.shapes.put(name, "?");
+        if (own == null) return;
+        Map<String, String> table = ownShapes.computeIfAbsent(own, k -> new LinkedHashMap<>());
+        before = table.putIfAbsent(name, kind);
+        if (before != null && !before.equals(kind)) table.put(name, "?");
     }
 
     private static boolean returnsValue(Ast.Block block) {
@@ -340,22 +503,31 @@ final class Declarations {
                     if (c.consts.containsKey(a.name()) && !a.pinned() && !own.containsKey(a.name()))
                         c.error("«" + a.name() + "» — постоянная, её не меняют", a.nameSpan());
                     if (a.pinned()) c.pinned.add(a.name());
-                    else if (a.scope() != null) declare(a.name(), a.scope(), a.nameSpan());
+                    else if (a.scope() != null) scoped(a.name(), a.scope(), a.nameSpan());
                     else plain.add(a.name());
                     if (a.op().equals("=") && a.value() instanceof Ast.ListLit) shape(a.name(), "list");
                     if (a.op().equals("=") && a.value() instanceof Ast.MapLit) shape(a.name(), "map");
                     if (a.op().equals("=") && created(a.value()) != null) shape(a.name(), created(a.value()));
                     if (a.pinned()) assign(a.name(), null);
                     else if (a.op().equals("=")) assign(a.name(), a.value());
+                    if (a.op().equals("=")) slots(a.value(), true);
                     if (a.op().equals("=") && !a.pinned() && !own.containsKey(a.name())) c.lints.assigned(a.name(), a.nameSpan());
                 }
                 case Ast.Declare d -> {
-                    declare(d.name(), d.scope(), d.span());
-                    assign(d.name(), null);
+                    scoped(d.name(), d.scope(), d.span());
+                    assign(d.name(), null, null, true);
+                    state(d.name(), d.shape());
+                }
+                case Ast.IndexAssign a -> {
+                    if (a.target().target() instanceof Ast.Var v) {
+                        if (!c.pinned.contains(v.name())) plain.add(v.name());
+                        if (a.target().index() instanceof Ast.Str) shape(v.name(), "map");
+                        if (a.target().index() instanceof Ast.Num) shape(v.name(), "list");
+                    }
                 }
                 case Ast.MultiAssign m -> {
                     for (int n = 0; n < m.names().size(); n++) {
-                        if (m.scope() != null) declare(m.names().get(n), m.scope(), m.nameSpans().get(n));
+                        if (m.scope() != null) scoped(m.names().get(n), m.scope(), m.nameSpans().get(n));
                         else plain.add(m.names().get(n));
                         assign(m.names().get(n), m.names().size() == m.values().size() ? m.values().get(n) : null);
                     }
@@ -366,7 +538,12 @@ final class Declarations {
                 }
                 case Ast.Run r -> {
                     writtenVariables(r.call(), plain);
+                    slots(r.call(), false);
                     collect(r.body(), plain);
+                }
+                case Ast.Jump j -> {
+                    if (j.value() != null && function != null)
+                        results.add(new Assigned(Wire.RESULT + function, j.value(), own, ownKinds, null, false));
                 }
                 case Ast.Repeat r -> collect(r.body(), plain);
                 case Ast.ForRange f -> {
@@ -391,7 +568,7 @@ final class Declarations {
 
     private void writtenVariables(Expr call, Set<String> plain) {
         Expr inner = call instanceof Ast.Targeted t ? t.inner() : call;
-        if (!(inner instanceof Ast.Call cl) || (cl.qualifier() == null && c.functions.containsKey(cl.name()))) return;
+        if (!(inner instanceof Ast.Call cl) || c.userCall(cl)) return;
         Names.Entry e = c.names.resolve(Names.Space.ACTION, cl.shown());
         if (e == null) return;
         List<Data.Arg> args = e.action().args();
@@ -406,21 +583,35 @@ final class Declarations {
             }
             if (target != null && Data.VARIABLE.equals(target.kind()) && a.value() instanceof Ast.Var v) {
                 if (v.scope() == null) plain.add(v.name());
-                assign(v.name(), null);
+                assign(v.name(), null, c.data.returned(e.action(), target), false);
             }
         }
     }
 
     private String created(Expr value) {
-        if (!(value instanceof Ast.Call call) || call.quoted() || (call.qualifier() == null && c.functions.containsKey(call.name())))
-            return null;
+        if (!(value instanceof Ast.Call call) || c.userCall(call)) return null;
+        if (call.qualifier() == null && call.name().equals("literal") && call.args().size() == 1) {
+            Expr inner = call.args().get(0).value();
+            return inner instanceof Ast.ListLit ? "list" : inner instanceof Ast.MapLit ? "map" : null;
+        }
         Names.Entry e = c.names.resolve(Names.Space.ACTION, call.shown());
         if (e == null) return null;
         return switch (e.action().id()) {
             case "set_variable_create_list" -> "list";
-            case "set_variable_create_map" -> "map";
+            case "set_variable_create_map", "set_variable_create_map_from_values" -> "map";
             default -> null;
         };
+    }
+
+    private void scoped(String name, String scope, Span at) {
+        if (!scope.equals(LINE)) {
+            declare(name, scope, at);
+            return;
+        }
+        if (c.consts.containsKey(name)) c.error("«" + name + "» — постоянная, её не объявляют переменной", at);
+        String before = c.variables.get(name);
+        if (before != null && !before.equals(scope)) c.error("переменная «" + name + "» уже объявлена как " + before + ", а здесь — " + scope, at);
+        own.put(name, scope);
     }
 
     private void declare(String name, String scope, Span at) {
@@ -510,19 +701,25 @@ final class Declarations {
         return obj("type", "localized_text", "data", Json.write(data));
     }
 
+    List<String> settled() {
+        return settled;
+    }
+
     private List<Object> parameters(Ast.Func f) {
+        settled = new ArrayList<>();
         List<Object> out = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        for (int i = 0; i < f.params().size(); i++) {
-            Ast.Param p = f.params().get(i);
+        Wire.ParamChest chest = new Wire.ParamChest(f.params().size());
+        for (Ast.Param p : f.params()) {
             if (!seen.add(p.name())) {
                 c.error("параметр «" + p.name() + "» уже есть", p.span());
                 continue;
             }
-            if (i >= Wire.PARAM_SLOTS) {
+            if (chest.full()) {
                 c.error("больше " + Wire.PARAM_SLOTS + " параметров сервер не разложит", p.span());
                 break;
             }
+            String about = about(p);
             if (p.options() != null || "enum".equalsIgnoreCase(p.type())) {
                 if (p.options() == null || p.options().isEmpty() || !"enum".equalsIgnoreCase(p.type())) {
                     c.error("вид с вариантами пишется так: " + p.name() + ": enum(\"первый\", \"второй\")", p.span());
@@ -531,7 +728,7 @@ final class Declarations {
                 String first = p.options().get(0);
                 if (p.fallback() != null && !(p.fallback() instanceof Ast.Str s && p.options().contains(s.text())))
                     c.error("по умолчанию у «" + p.name() + "» — один из вариантов: " + String.join(", ", p.options()), p.fallback().span());
-                out.add(Wire.markerParameter(p.name(), p.options(), p.fallback() instanceof Ast.Str s ? s.text() : first, i));
+                out.add(Wire.markerParameter(p.name(), p.options(), p.fallback() instanceof Ast.Str s ? s.text() : first, chest.take(), about));
                 continue;
             }
             String type = "any";
@@ -542,13 +739,27 @@ final class Declarations {
                     type = "any";
                 }
             }
-            String fallback = "{}";
-            if (p.fallback() != null) {
+            String fallback = p.many() ? Wire.EMPTY_LIST : "{}";
+            if (p.fallback() != null && !(p.fallback() instanceof Ast.Blank)) {
                 Object v = c.guard(() -> c.compiler.value(p.fallback(), null));
                 if (v != null) fallback = Json.write(v);
+                if (Wire.lazy(v) && !Calls.verbatim(p.fallback())) settled.add(p.name());
             }
-            out.add(Wire.parameter(p.name(), type, p.fallback() == null, fallback, i));
+            if (p.many()) {
+                List<Integer> slots = chest.take(p.cells());
+                if (slots == null) c.error("в сундуке функции не хватает клеток для «" + p.name() + "»", p.span());
+                else out.add(Wire.pluralParameter(p.name(), type, p.fallback() == null, fallback, slots, about));
+                continue;
+            }
+            out.add(Wire.parameter(p.name(), type, p.fallback() == null, fallback, chest.take(), about));
         }
         return out;
+    }
+
+    private String about(Ast.Param p) {
+        if (p.about() == null) return Wire.NO_TRANSLATIONS;
+        Map<String, Object> data = obj("translations", obj(), "fallback", obj("rawText", p.about().text(),
+                "parsingType", Context.parsing(p.about().prefix()).toUpperCase(Locale.ROOT)));
+        return Json.write(data);
     }
 }

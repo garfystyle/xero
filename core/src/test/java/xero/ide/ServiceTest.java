@@ -377,4 +377,45 @@ class ServiceTest {
         assertTrue(labels("when player_join {\n    give_items(item(diamond_sword, enchantments: {sharpness: 1, unbr|}))\n}")
                 .contains("unbreaking"));
     }
+
+    @Test
+    void afterTarget() {
+        List<String> statement = labels("when player_join {\n    @all |\n}");
+        assertTrue(statement.contains("give_items"), statement.toString());
+        assertTrue(labels("when player_join {\n    @all send|\n}").contains("send_message"));
+        assertTrue(!statement.contains("sound") && !statement.contains("potion"), statement.toString());
+        assertTrue(labels("when player_join {\n    if @all sne|\n}").stream().anyMatch(l -> l.contains("sneaking")));
+        assertTrue(labels("when player_join {\n    x = @all va|\n}").contains("value"));
+        assertEquals("all", labels("when player_join {\n    @al|\n}").get(0));
+    }
+
+    @Test
+    void markerWordIsNotAVariable() {
+        String text = "when player_join {\n    wait(1, seconds)\n    wait(2, time_unit: minutes)\n    x = 1\n    \n}\n";
+        assertEquals(2, S.variables(text).stream().filter(m -> m.scope().equals("option")).count());
+        assertEquals(1, S.variables(text).stream().filter(m -> !m.scope().equals("option")).count());
+        int word = text.indexOf("seconds") + 2;
+        assertTrue(S.hover(text, word).contains("**"), S.hover(text, word));
+        assertEquals("переименовать можно функцию, процесс или переменную", S.rename(text, word, "abc").error());
+        List<String> blank = S.complete(text, text.indexOf("    \n}") + 4).items().stream().map(Service.Item::label).toList();
+        assertTrue(!blank.contains("seconds") && !blank.contains("minutes") && blank.contains("x"), blank.toString());
+    }
+
+    @Test
+    void realVariablesStayVariables() {
+        String read = "when player_join {\n    seconds = 5\n    send_message(\"${seconds}\")\n    wait(seconds)\n}\n";
+        assertTrue(S.variables(read).stream().allMatch(m -> m.scope().equals("local")), S.variables(read).toString());
+        String constant = "const unit = \"seconds\"\nwhen player_join {\n    wait(1, unit)\n}\n";
+        assertTrue(S.variables(constant).stream().noneMatch(m -> m.scope().equals("option")));
+    }
+
+    @Test
+    void markerWordsInTheCompletion() {
+        List<String> next = labels("when player_join {\n    wait(1, |)\n}");
+        assertTrue(next.contains("seconds") && next.contains("time_unit"), next.toString());
+        assertTrue(!next.contains("value") && !next.contains("sound"), next.toString());
+        assertTrue(labels("when player_join {\n    wait(|)\n}").contains("seconds"));
+        assertEquals("seconds", first("when player_join {\n    wait(1, sec|)\n}"));
+        assertTrue(!labels("when player_join {\n    wait(1, time_unit: seconds, |)\n}").contains("minutes"));
+    }
 }

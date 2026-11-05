@@ -39,16 +39,35 @@ public final class Delivery {
 
     public record Clash(Line project, Line world, boolean doubled) {}
 
+    static final int TEMPLATE_WIDTH = 43;
+
+    static int width(Map<String, Object> block) {
+        int width = 0;
+        if (block.get("operations") instanceof List<?> operations)
+            for (Object raw : operations) {
+                Map<String, Object> operation = Json.object(raw);
+                width += operation.containsKey("operations") ? 2 + width(operation) : 1;
+            }
+        return width;
+    }
+
     public record Plan(List<Line> same, List<Line> changed, List<Line> added, List<Line> missing, List<Line> kept, List<Line> was) {
         public boolean lineByLine(List<Line> world, int limit) {
             if (!missing.isEmpty() || changed.size() + added.size() > limit) return false;
-            for (int i = 0; i < changed.size(); i++)
-                if (changed.get(i).position() != was.get(i).position() || was.get(i).json() == null) return false;
+            for (int i = 0; i < changed.size(); i++) {
+                Line before = was.get(i);
+                if (changed.get(i).position() != before.position() || before.json() == null) return false;
+                if (tooWide(changed.get(i)) || tooWide(before)) return false;
+            }
             for (Line a : added) {
-                if (a.position() < 0) return false;
+                if (a.position() < 0 || tooWide(a)) return false;
                 for (Line w : world) if (w.position() == a.position()) return false;
             }
             return true;
+        }
+
+        private static boolean tooWide(Line line) {
+            return width(line.json()) > TEMPLATE_WIDTH;
         }
 
         public List<Object> lines() {
@@ -242,8 +261,19 @@ public final class Delivery {
                 if (x instanceof Map<?, ?> param) {
                     param.remove("slot");
                     param.remove("description_slot");
+                    param.remove("slots");
+                    param.remove("description_slots");
+                    if (param.get("default_value") instanceof String fallback) Json.object(param).put("default_value", canonical(fallback));
                 }
         return p;
+    }
+
+    private static String canonical(String json) {
+        try {
+            return Json.write(plain(Json.parse(json)));
+        } catch (Json.Error | IllegalArgumentException e) {
+            return json;
+        }
     }
 
     static Object plain(Object v) {
@@ -259,6 +289,9 @@ public final class Delivery {
             new TreeMap<>(Json.object(m)).forEach((k, x) -> out.put(k, plain(x)));
             if ("text".equals(out.get("type")) && "plain".equals(out.get("parsing")) && out.get("text") instanceof String t
                     && Wire.sameInAnyMarkup(t)) out.put("parsing", "legacy");
+            if ("item".equals(out.get("type")) && out.get("item") instanceof String item) out.put("item", Items.canonical(item));
+            if ("number".equals(out.get("type")) && out.get("number") instanceof String n)
+                out.put("number", Wire.plainNumber(n) ? new BigDecimal(n).stripTrailingZeros().toPlainString() : MathPrint.canonical(n));
             return out;
         }
         if (v instanceof List<?> l) {

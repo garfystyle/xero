@@ -130,7 +130,7 @@ class JmscriptDialectTest {
 
     private static Object normal(Map<String, Object> module) {
         List<Map<String, Object>> list = new ArrayList<>();
-        for (Object h : Json.array(module.get("handlers"))) list.add(Json.object(h));
+        for (Object h : Json.array(Decompiler.upgraded(SERVICE.data(), module).get("handlers"))) list.add(Json.object(h));
         list.sort(Comparator.comparingInt(h -> h.get("position") instanceof Json.Num n ? n.intValue() : 0));
         List<Object> out = new ArrayList<>();
         for (Map<String, Object> h : list) {

@@ -351,7 +351,7 @@ final class Print {
             case "block" -> "block(" + quote(id(c.args().get(0).value())) + ")";
             case "sound", "potion" -> fielded(c, Map.of());
             case "particle" -> fielded(c, PARTICLE_NAMES);
-            case "num", "raw", "enum", "len" -> plainFactory(c.name(), c);
+            case "num", "raw", "enum", "len", "literal" -> plainFactory(c.name(), c);
             default -> null;
         };
     }

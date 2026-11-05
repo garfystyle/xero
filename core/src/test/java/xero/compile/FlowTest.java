@@ -406,7 +406,7 @@ class FlowTest {
         String self = circle("when player_join {\n    x = 1\n    x = num(\"%math(x+5)\")\n    send_message(\"${x}\")\n}\n");
         assertTrue(self.contains("x = num(\"%math(x+5)\")"), self);
         String hand = circle("when player_join {\n    l = [1]\n    x = num(\"%math(%length_local(l)-1)\")\n    send_message(\"${x}\")\n}\n");
-        assertTrue(hand.contains("num(\"%math(%length_local(l)-1)\")"), hand);
+        assertTrue(hand.contains("x = len(l) - 1"), hand);
         String stranger = circle("when player_join {\n    x = num(\"%math(q+1)\")\n    send_message(\"${x}\")\n}\n");
         assertTrue(stranger.contains("num(\"%math(q+1)\")"), stranger);
         String vector = circle("when player_join {\n    a = vec(1, 2, 3)\n    x = num(\"%math(a+1)\")\n    send_message(\"${x}${a}\")\n}\n");
@@ -514,8 +514,8 @@ class FlowTest {
     @Test
     void importedParameters() {
         String module = "{\"handlers\":[{\"type\":\"function\",\"name\":\"f\",\"position\":0,\"operations\":[],\"values\":[{\"name\":\"parameters\",\"value\":"
-                + "{\"type\":\"array\",\"values\":[" + Json.write(Wire.parameter("n", "number", true, "{}", 0)) + ","
-                + Json.write(Wire.markerParameter("mode", List.of("a", "b"), "a", 1)) + "]}}]}]}";
+                + "{\"type\":\"array\",\"values\":[" + Json.write(Wire.parameter("n", "number", true, "{}", 0, Wire.NO_TRANSLATIONS)) + ","
+                + Json.write(Wire.markerParameter("mode", List.of("a", "b"), "a", 1, Wire.NO_TRANSLATIONS)) + "]}}]}]}";
         assertTrue(withModule("import \"lib\"\nwhen player_join {\n    f(1, mode: \"b\")\n}\n", module).ok());
         assertTrue(withModule("import \"lib\"\nwhen player_join {\n    f()\n}\n", module).diagnostics().get(0).message().contains("не передан параметр «n»"));
         assertTrue(withModule("import \"lib\"\nwhen player_join {\n    f(1, mode: \"c\")\n}\n", module).diagnostics().get(0).message().contains("нет варианта «c»"));
@@ -524,7 +524,7 @@ class FlowTest {
 
     @Test
     void liveMarkerParameterMatches() {
-        Map<String, Object> p = Wire.markerParameter("mode", List.of("alpha"), "alpha", 0);
+        Map<String, Object> p = Wire.markerParameter("mode", List.of("alpha"), "alpha", 0, Wire.NO_TRANSLATIONS);
         Object element = Json.array(Json.parse((String) p.get("elements"))).get(0);
         assertTrue(((String) element).contains("\\u003d\\u003d\""), (String) element);
     }

@@ -104,7 +104,7 @@ public final class JmscriptDialect extends Dialect {
 
     @Override
     public Decompiled decompile(Map<String, Object> module) {
-        Decompiler.Result r = Decompiler.decompile(service.data(), service.names(), module);
+        Decompiler.Result r = Decompiler.forDialect(service.data(), service.names(), module);
         List<Diagnostic> problems = new ArrayList<>();
         Ast.File file = xero.lang.Parser.parse(r.text(), problems);
         List<String> notes = new ArrayList<>(r.notes());

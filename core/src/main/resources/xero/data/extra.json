@@ -1,0 +1,97 @@
+{
+  "events": {
+    "player_anticheat_flag": "Событие игрока|Античит засёк игрока",
+    "player_vehicle_move": "Событие игрока|Игрок передвигается на транспорте"
+  },
+  "actions": {
+    "player_send_hover": {
+      "k": "Действие над игроком|Отправить сообщение с наведением",
+      "a": {
+        "message": 0,
+        "hover": 1
+      },
+      "t": "p"
+    },
+    "player_send_minimessage": {
+      "k": "Действие над игроком|Отправить сообщение формата MiniMessage",
+      "a": {
+        "minimessage": 0
+      },
+      "t": "p"
+    }
+  },
+  "sounds": [
+    "music_disc.5",
+    "music_disc.11",
+    "music_disc.13",
+    "music_disc.blocks",
+    "music_disc.cat",
+    "music_disc.chirp",
+    "music_disc.creator",
+    "music_disc.creator_music_box",
+    "music_disc.far",
+    "music_disc.lava_chicken",
+    "music_disc.mall",
+    "music_disc.mellohi",
+    "music_disc.otherside",
+    "music_disc.pigstep",
+    "music_disc.precipice",
+    "music_disc.relic",
+    "music_disc.stal",
+    "music_disc.strad",
+    "music_disc.tears",
+    "music_disc.wait",
+    "music_disc.ward",
+    "entity.cat_royal.stray_ambient",
+    "entity.sulfur_cube.squish",
+    "item.sweet_berries.pick_from_bush"
+  ],
+  "returns": {
+    "Вектор": [
+      "set_variable_vector",
+      "set_variable_get_vector_from_block_face",
+      "set_variable_get_vector_between_locations",
+      "set_variable_set_vector_component",
+      "set_variable_add_vectors",
+      "set_variable_subtract_vectors",
+      "set_variable_set_vector_length",
+      "set_variable_align_to_axis_vector",
+      "set_variable_reflect_vector_product",
+      "set_variable_rotate_vector_around_axis",
+      "set_variable_rotate_vector_around_vector",
+      "set_variable_multiply_vector",
+      "set_variable_divide_vector",
+      "set_variable_vector_cross_product",
+      "set_variable_get_midpoint_between_vectors",
+      "set_variable_hadamard_vector_product",
+      "set_variable_get_location_direction",
+      "set_variable_get_particle_offset"
+    ],
+    "Местоположение": [
+      "set_variable_set_all_coordinates",
+      "set_variable_set_coordinate",
+      "set_variable_shift_coordinate",
+      "set_variable_shift_all_coordinates",
+      "set_variable_shift_location_in_direction",
+      "set_variable_shift_location_towards_location",
+      "set_variable_shift_location_on_vector",
+      "set_variable_location_relative",
+      "set_variable_set_location_direction",
+      "set_variable_align_location",
+      "set_variable_face_location",
+      "set_variable_center_location",
+      "set_variable_random_location",
+      "set_variable_get_compass_lodestone",
+      "set_variable_find_nearest_location",
+      "set_variable_clamp_location",
+      "repeat_on_grid",
+      "repeat_adjacently",
+      "repeat_on_path",
+      "repeat_on_circle",
+      "repeat_on_sphere",
+      "select_filter_by_raycast",
+      "set_variable_ray_trace_result.variable_for_hit_location",
+      "set_variable_ray_trace_result.variable_for_hit_block_location"
+    ]
+  }
+}

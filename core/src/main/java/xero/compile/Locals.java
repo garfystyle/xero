@@ -22,6 +22,7 @@ final class Locals {
         final Ast.Item item;
         final String file;
         final Set<String> writes = new LinkedHashSet<>();
+        final Map<String, Span> writtenAt = new LinkedHashMap<>();
         final Map<String, Read> reads = new LinkedHashMap<>();
         final Set<String> calls = new LinkedHashSet<>();
         final List<Start> starts = new ArrayList<>();
@@ -64,8 +65,12 @@ final class Locals {
 
     void use(String name, Span at, boolean write) {
         if (current == null || name.startsWith(Wire.TEMP) || c.declared.contains(name)) return;
-        if (write) current.writes.add(name);
-        else if (at != null) current.reads.putIfAbsent(name, new Read(name, at));
+        if (write) {
+            current.writes.add(name);
+            if (at != null) current.writtenAt.putIfAbsent(name, at);
+        } else if (at != null) {
+            current.reads.putIfAbsent(name, new Read(name, at));
+        }
     }
 
     void call(String function, boolean known) {
@@ -104,6 +109,7 @@ final class Locals {
             if (l.item instanceof Ast.Func f) (f.process() ? processes : functions).putIfAbsent(f.name(), l);
             if (l.root()) roots.add(l);
         }
+        shared(functions);
         Map<Line, List<Line>> reach = new LinkedHashMap<>();
         Set<Line> reached = new HashSet<>();
         for (Line r : roots) {
@@ -159,6 +165,24 @@ final class Locals {
                     for (Line w : roots) if (own.get(w).contains(name)) writers.add(w.title());
                     if (writers.isEmpty() || !told.add(name) || !warned.add(l.file + ":" + read.at().start())) continue;
                     warn(read, l, r, writers, units);
+                }
+            }
+        }
+    }
+
+    private void shared(Map<String, Line> functions) {
+        Set<String> told = new HashSet<>();
+        for (Line caller : lines) {
+            for (String name : caller.calls) {
+                Line callee = functions.get(name);
+                if (callee == null || callee == caller) continue;
+                for (Map.Entry<String, Span> w : callee.writtenAt.entrySet()) {
+                    String variable = w.getKey();
+                    boolean used = caller.writes.contains(variable) || caller.reads.containsKey(variable);
+                    if (!used || !told.add(name + ":" + variable)) continue;
+                    c.diagnostics.add(new Diagnostic(false, "«" + variable + "» в " + callee.title() + " — та же локальная, что в "
+                            + caller.title() + ": вызов её перепишет", w.getValue().start(), w.getValue().end(),
+                            "локальные общие с вызывающим кодом; своя переменная — line " + Keywords.name(variable)).in(callee.file));
                 }
             }
         }

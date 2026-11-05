@@ -99,8 +99,76 @@ public abstract class Dialect {
         return -1;
     }
 
+    private static int codeEnd(String e, int open, int end) {
+        int depth = 0;
+        for (int i = open; i < end; i++) {
+            char c = e.charAt(i);
+            if (c == '"') {
+                i++;
+                while (i < end && e.charAt(i) != '"') i += e.charAt(i) == '\\' ? 2 : 1;
+            } else if (c == '{') {
+                depth++;
+            } else if (c == '}' && --depth == 0) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static String spelled(String e) {
+        int quote = e.indexOf('"');
+        if (quote < 0 || !e.contains("${") || !e.endsWith("\"") || e.length() - quote < 2) return e;
+        for (int i = 0; i < quote; i++) if (!Character.isLetter(e.charAt(i))) return e;
+        StringBuilder out = new StringBuilder(e.substring(0, quote + 1));
+        int end = e.length() - 1;
+        for (int i = quote + 1; i < end; i++) {
+            char c = e.charAt(i);
+            if (c == '\\' && i + 1 < end) {
+                if (e.charAt(i + 1) == '$') return null;
+                out.append(c).append(e.charAt(++i));
+            } else if (c == '$' && e.charAt(i + 1) == '{') {
+                int close = codeEnd(e, i + 1, end);
+                if (close < 0) return e;
+                out.append("\\$");
+                for (int k = i + 1; k <= close; k++) {
+                    char x = e.charAt(k);
+                    if (x == '"' || x == '\\') out.append('\\');
+                    out.append(x);
+                }
+                i = close;
+            } else if (c == '"') {
+                return e;
+            } else {
+                out.append(c);
+            }
+        }
+        return out.append('"').toString();
+    }
+
+    private static String code(String text) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            if (!text.startsWith("\\${", i)) {
+                out.append(text.charAt(i));
+                continue;
+            }
+            out.append("${");
+            int depth = 1;
+            for (i += 3; i < text.length() && depth > 0; i++) {
+                char c = text.charAt(i);
+                if (c == '\\' && i + 1 < text.length()) c = text.charAt(++i);
+                else if (c == '{') depth++;
+                else if (c == '}') depth--;
+                out.append(c);
+            }
+            i--;
+        }
+        return out.toString();
+    }
+
     public Map<String, Object> valueOf(String expression) {
-        String program = holder(expression);
+        String spelled = syntax().dollar() ? spelled(expression) : expression;
+        String program = spelled == null ? null : holder(spelled);
         if (program == null) return null;
         Built built = build("значение." + extension(), program, null);
         if (!built.ok()) return null;
@@ -140,7 +208,11 @@ public abstract class Dialect {
         handler.put("operations", new ArrayList<Object>(List.of(op)));
         Map<String, Object> module = new LinkedHashMap<>();
         module.put("handlers", new ArrayList<Object>(List.of(handler)));
-        return oneLine(held(decompile(module).text()));
+        String text = oneLine(held(decompile(module).text()));
+        if (text == null || !"text".equals(value.get("type"))) return text;
+        if (syntax().dollar()) text = code(text);
+        if ("plain".equals(value.get("parsing")) && text.startsWith("\"") && syntax().stringPrefix("plain")) text = "plain" + text;
+        return text;
     }
 
     private static Map<String, Object> plain(Map<String, Object> value) {

@@ -145,7 +145,7 @@ class FeaturesTest {
     @Test
     void unknownShape() {
         assertEquals(List.of("не понятно, «q» — список или словарь"),
-                errors("when player_join {\n    save q\n    i = 1\n    x = q[i]\n}"));
+                errors("when player_join {\n    save q\n    save i\n    x = q[i]\n}"));
     }
 
     @Test
@@ -268,7 +268,7 @@ class FeaturesTest {
     @Test
     void decompilerQuotesKeywordNames() {
         List<String> words = List.of("for", "while", "repeat", "forever", "if", "return", "start", "import", "in", "step",
-                "для", "пока", "повторить", "всегда", "шаг", "в", "импорт", "и", "не", "value", "game", "_");
+                "для", "пока", "повторить", "всегда", "шаг", "в", "импорт", "и", "не", "game", "_");
         StringBuilder body = new StringBuilder();
         for (String w : words) body.append("    `").append(w).append("` = 1\n");
         for (String w : words) body.append("    send_message(`").append(w).append("`)\n");
@@ -384,7 +384,7 @@ class FeaturesTest {
         String world = "{\"handlers\":[{\"type\":\"process\",\"name\":\"p\",\"values\":[{\"name\":\"is_hidden\",\"value\":"
                 + "{\"type\":\"enum\",\"enum\":\"FALSE\"}}],\"position\":0,\"operations\":[]},{\"type\":\"event\",\"event\":"
                 + "\"player_join\",\"position\":1,\"operations\":[{\"action\":\"start_process\",\"values\":[{\"name\":"
-                + "\"process_name\",\"value\":{\"type\":\"text\",\"text\":\"p\",\"parsing\":\"legacy\"}},{\"name\":"
+                + "\"process_name\",\"value\":{\"type\":\"text\",\"text\":\"p\",\"parsing\":\"plain\"}},{\"name\":"
                 + "\"local_variables_mode\",\"value\":{\"type\":\"enum\",\"enum\":\"WEIRD\"}},{\"name\":\"target_mode\","
                 + "\"value\":{\"type\":\"enum\",\"enum\":\"NO_TARGET\"}}]}]}]}";
         Map<String, Object> module = Json.object(Json.parse(world));

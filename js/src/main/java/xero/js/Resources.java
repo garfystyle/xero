@@ -8,7 +8,7 @@ public class Resources implements ResourcesPolicy {
     private static final String[] DATA = {
             "xero/data/mapping.json", "xero/data/catalog.json", "xero/data/values.json",
             "xero/data/pickers.json", "xero/data/placeholders.json", "xero/data/minecraft.json",
-            "xero/data/components.json"};
+            "xero/data/components.json", "xero/data/extra.json"};
 
     @Override
     public String[] supplyResources(Collection<? extends String> classNames) {

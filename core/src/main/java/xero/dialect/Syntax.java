@@ -8,6 +8,12 @@ public record Syntax(Set<String> keywords, Set<String> literals, Set<String> typ
                      String joiner, char decorator) {
     public static Builder of(Set<String> keywords) { return new Builder(keywords); }
 
+    public boolean stringPrefix(String word) {
+        if (word.isEmpty()) return false;
+        if (prefixes.indexOf(' ') >= 0) return (" " + prefixes + " ").contains(" " + word + " ");
+        return word.length() == 1 && prefixes.indexOf(word.charAt(0)) >= 0;
+    }
+
     public static final class Builder {
         private final Set<String> keywords;
         private Set<String> literals = Set.of("true", "false");

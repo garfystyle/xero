@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.function.BiFunction;
 
 final class MathPrint {
-    sealed interface Node permits Num, Bare, Placed, Value, Length, Call, Neg, Bin {}
+    sealed interface Node permits Num, Bare, Placed, Value, Length, Cell, Call, Neg, Bin {}
 
     record Num(String text) implements Node {}
 
@@ -16,6 +16,8 @@ final class MathPrint {
     record Value(String id) implements Node {}
 
     record Length(String name, String scope) implements Node {}
+
+    record Cell(String name, String scope, String key, boolean list) implements Node {}
 
     record Call(String name, List<Node> args) implements Node {}
 
@@ -36,13 +38,55 @@ final class MathPrint {
     }
 
     static Node parse(String inner) {
-        MathPrint p = new MathPrint(inner);
+        String text = spaceless(inner);
+        MathPrint p = new MathPrint(text);
         try {
             Node n = p.sum();
-            return p.pos == inner.length() ? n : null;
+            return p.pos == text.length() ? n : null;
         } catch (Fail f) {
             return null;
         }
+    }
+
+    private static String spaceless(String s) {
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == ' ') continue;
+            out.append(c);
+            if (c != '%') continue;
+            int open = i + 1;
+            while (open < s.length() && (Character.isLetter(s.charAt(open)) || s.charAt(open) == '_')) open++;
+            if (open >= s.length() || s.charAt(open) != '(') continue;
+            int close = s.indexOf(')', open);
+            if (close < 0) continue;
+            out.append(s, i + 1, close + 1);
+            i = close;
+        }
+        return out.toString();
+    }
+
+    static String canonical(String number) {
+        if (!number.startsWith("%math(") || !number.endsWith(")")) return number;
+        Node n = parse(number.substring("%math(".length(), number.length() - 1));
+        if (n == null) return number;
+        if (n instanceof Length x) return "%length" + suffix(x.scope()) + "(" + x.name() + ")";
+        return "%math(" + math(bare(n), 0) + ")";
+    }
+
+    private static Node bare(Node n) {
+        return switch (n) {
+            case Placed x when x.scope().equals("local") && x.name().matches("[A-Za-z_][A-Za-z0-9_]*") && !Texts.mathWord(x.name()) ->
+                    new Bare(x.name());
+            case Neg x -> new Neg(bare(x.operand()));
+            case Bin x -> new Bin(x.op(), bare(x.left()), bare(x.right()));
+            case Call x -> {
+                List<Node> args = new ArrayList<>();
+                for (Node a : x.args()) args.add(bare(a));
+                yield new Call(x.name(), args);
+            }
+            default -> n;
+        };
     }
 
     private char peek() {
@@ -68,7 +112,9 @@ final class MathPrint {
     }
 
     private boolean placeholder() {
-        return pos + 1 < text.length() && Character.isLetter(text.charAt(pos + 1));
+        int i = pos + 1;
+        while (i < text.length() && (Character.isLetter(text.charAt(i)) || text.charAt(i) == '_')) i++;
+        return i > pos + 1 && i < text.length() && (text.charAt(i) == '(' || text.charAt(i) == '%');
     }
 
     private Node unary() {
@@ -130,27 +176,36 @@ final class MathPrint {
         int close = text.indexOf(')', open);
         if (close < 0) throw new Fail();
         String inner = text.substring(open + 1, close);
-        if (inner.isEmpty() || inner.indexOf('(') >= 0 || inner.indexOf(',') >= 0) throw new Fail();
+        if (inner.isEmpty() || inner.indexOf('(') >= 0 || inner.indexOf('%') >= 0) throw new Fail();
         pos = close + 1;
+        boolean list = head.startsWith("index"), map = head.startsWith("entry");
+        if (list || map) {
+            int comma = inner.indexOf(',');
+            if (comma <= 0 || comma != inner.lastIndexOf(',')) throw new Fail();
+            String key = inner.substring(comma + 1);
+            if (key.isEmpty() || key.indexOf(' ') >= 0 || list && !key.matches("\\d+")) throw new Fail();
+            return new Cell(inner.substring(0, comma), scope(head.substring("index".length())), key, list);
+        }
+        if (inner.indexOf(',') >= 0) throw new Fail();
         if (head.equals("val")) return new Value(inner);
         boolean length = head.startsWith("length");
         if (!length && !head.startsWith("var")) throw new Fail();
-        String scope = switch (head.substring(length ? "length".length() : "var".length())) {
+        String scope = scope(head.substring(length ? "length".length() : "var".length()));
+        return length ? new Length(inner, scope) : new Placed(inner, scope);
+    }
+
+    private static String scope(String suffix) {
+        return switch (suffix) {
             case "" -> "game";
             case "_local" -> "local";
             case "_save" -> "save";
             case "_line" -> "line";
             default -> throw new Fail();
         };
-        return length ? new Length(inner, scope) : new Placed(inner, scope);
     }
 
     private static int precedence(String op) {
         return op.equals("+") || op.equals("-") ? 1 : 2;
-    }
-
-    private static int rightOf(String op, int p) {
-        return op.equals("-") || op.equals("/") || op.equals("%") ? p + 1 : p;
     }
 
     private static String suffix(String scope) {
@@ -169,6 +224,7 @@ final class MathPrint {
             case Placed x -> "(%var" + suffix(x.scope()) + "(" + x.name() + "))";
             case Value x -> "%val(" + x.id() + ")";
             case Length x -> "(%length" + suffix(x.scope()) + "(" + x.name() + "))";
+            case Cell x -> "(%" + (x.list() ? "index" : "entry") + suffix(x.scope()) + "(" + x.name() + "," + x.key() + "))";
             case Call x -> {
                 List<String> args = new ArrayList<>();
                 for (Node a : x.args()) args.add(math(a, 0));
@@ -177,7 +233,10 @@ final class MathPrint {
             case Neg x -> "-" + math(x.operand(), 3);
             case Bin x -> {
                 int p = precedence(x.op());
-                String s = math(x.left(), p) + x.op() + math(x.right(), rightOf(x.op(), p));
+                String left = math(x.left(), p), right = math(x.right(), p + 1);
+                if (x.op().equals("%") && left.matches("(?s).*%[A-Za-z_][A-Za-z0-9_]*")) left = "(" + left + ")";
+                if (x.op().equals("%") && right.matches("(?s)[A-Za-z_][A-Za-z0-9_]*[(].*")) right = "(" + right + ")";
+                String s = left + x.op() + right;
                 yield p < parent ? "(" + s + ")" : s;
             }
         };
@@ -204,6 +263,7 @@ final class MathPrint {
             case Placed x -> require(variable.apply(x.name(), x.scope()));
             case Value x -> require(value.apply(x.id(), null));
             case Length x -> "len(" + require(variable.apply(x.name(), "#" + x.scope())) + ")";
+            case Cell x -> require(variable.apply(x.name(), "#" + x.scope())) + "[" + (x.list() ? x.key() : Decompiler.quote(x.key(), null)) + "]";
             case Call x -> {
                 if (!Texts.mathFunction(x.name()) || !Texts.mathArity(x.name(), x.args().size())) throw new Fail();
                 List<String> args = new ArrayList<>();
@@ -213,7 +273,7 @@ final class MathPrint {
             case Neg x -> "-" + xero(x.operand(), 3, variable, value);
             case Bin x -> {
                 int p = precedence(x.op());
-                String s = xero(x.left(), p, variable, value) + " " + x.op() + " " + xero(x.right(), rightOf(x.op(), p), variable, value);
+                String s = xero(x.left(), p, variable, value) + " " + x.op() + " " + xero(x.right(), p + 1, variable, value);
                 yield p < parent ? "(" + s + ")" : s;
             }
         };

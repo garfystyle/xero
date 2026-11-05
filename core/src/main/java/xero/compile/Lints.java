@@ -1,5 +1,6 @@
 package xero.compile;
 
+import xero.data.Names;
 import xero.lang.Ast;
 import xero.lang.Ast.Span;
 import xero.lang.Diagnostic;
@@ -33,6 +34,40 @@ final class Lints {
     void read(String name) {
         read.add(name);
         if (inside != null) inside.add(name);
+        name(name);
+    }
+
+    void name(String name) {
+        if (name.indexOf('%') >= 0) text(name);
+    }
+
+    boolean pauses(Ast.Block block) {
+        if (block == null) return false;
+        for (Ast.Stmt s : block.stmts()) if (pauses(s)) return true;
+        return false;
+    }
+
+    private boolean pauses(Ast.Stmt s) {
+        if (!c.calls.count(s).isEmpty()) return true;
+        return switch (s) {
+            case Ast.Jump j -> !j.kind().equals("continue");
+            case Ast.Run r -> calls(r.call()) || pauses(r.body());
+            case Ast.If i -> pauses(i.otherwise()) || i.branches().stream().anyMatch(b -> pauses(b.body()));
+            case Ast.Repeat r -> pauses(r.body());
+            case Ast.ForRange f -> pauses(f.body());
+            case Ast.ForEach f -> pauses(f.body());
+            case Ast.While w -> pauses(w.body());
+            case Ast.Forever f -> pauses(f.body());
+            default -> false;
+        };
+    }
+
+    private boolean calls(Ast.Expr e) {
+        Ast.Expr inner = e instanceof Ast.Targeted t ? t.inner() : e;
+        if (!(inner instanceof Ast.Call call)) return false;
+        if (c.userCall(call) || call.qualifier() == null && call.name().equals("call")) return true;
+        Names.Entry entry = c.names.resolve(Names.Space.ACTION, call.shown());
+        return entry != null && Wire.LOOP_EXITS.contains(entry.action().canonical());
     }
 
     void text(String text) {

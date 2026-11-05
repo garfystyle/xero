@@ -72,7 +72,7 @@ public final class Lexer {
             int start = pos;
             if (c == '"') { string(null, start); continue; }
             if (c == '`') { name(start); continue; }
-            if (Character.isDigit(c)) { number(start); continue; }
+            if (digit(c)) { number(start); continue; }
             if (identStart(c)) {
                 while (pos < end && identPart(text.charAt(pos))) pos++;
                 String word = text.substring(start, pos);
@@ -133,11 +133,15 @@ public final class Lexer {
     }
 
     private void digits() {
-        while (pos < end && Character.isDigit(text.charAt(pos))) pos++;
-        if (pos + 1 < end && text.charAt(pos) == '.' && Character.isDigit(text.charAt(pos + 1))) {
+        while (pos < end && digit(text.charAt(pos))) pos++;
+        if (pos + 1 < end && text.charAt(pos) == '.' && digit(text.charAt(pos + 1))) {
             pos++;
-            while (pos < end && Character.isDigit(text.charAt(pos))) pos++;
+            while (pos < end && digit(text.charAt(pos))) pos++;
         }
+    }
+
+    private static boolean digit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     private int unitEnd(int at) {
@@ -154,7 +158,7 @@ public final class Lexer {
             return;
         }
         pos = unit;
-        while (pos < end && Character.isDigit(text.charAt(pos))) {
+        while (pos < end && digit(text.charAt(pos))) {
             int part = pos;
             digits();
             int next = unitEnd(pos);
@@ -212,7 +216,7 @@ public final class Lexer {
                 whole.append(c);
                 continue;
             }
-            if (pos >= end) continue;
+            if (pos >= end || text.charAt(pos) == '\n') continue;
             char e = text.charAt(pos++);
             switch (e) {
                 case '"' -> { literal.append('"'); whole.append('"'); }
@@ -252,6 +256,9 @@ public final class Lexer {
                     if (text.charAt(i) == '\\') i++;
                     i++;
                 }
+            } else if (c == '`') {
+                i++;
+                while (i < end && text.charAt(i) != '`' && text.charAt(i) != '\n') i++;
             } else if (c == '{') {
                 depth++;
             } else if (c == '}') {
@@ -274,7 +281,9 @@ public final class Lexer {
         }
         String value = text.substring(pos, close);
         pos = close + 1;
-        if (value.isEmpty()) diagnostics.add(Diagnostic.error("пустое имя в ``", start, pos));
+        if (value.isEmpty()) diagnostics.add(Diagnostic.warning("пустое имя в ``: так бывает только в старом коде", start, pos));
+        if (value.contains("${")) diagnostics.add(new Diagnostic(false, "в имени ${…} не подставляется: имя будет буквальным", start, pos,
+                "значение в имя подставляет плейсхолдер: `монеты %var_local(ник)`"));
         add(Token.Kind.NAME, value, null, start, null);
     }
 

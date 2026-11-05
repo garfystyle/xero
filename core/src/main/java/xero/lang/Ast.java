@@ -18,7 +18,11 @@ public final class Ast {
     public record Func(boolean process, String name, boolean quoted, Span nameSpan, List<Param> params,
                        Block body, List<Decorator> decorators, Span span) implements Item {}
 
-    public record Global(String scope, String name, Span span) implements Item {}
+    public record Global(String scope, String name, String shape, Span span) implements Item {
+        public Global(String scope, String name, Span span) {
+            this(scope, name, null, span);
+        }
+    }
 
     public record Const(String name, Span nameSpan, Expr value, Span span) implements Item {}
 
@@ -26,7 +30,15 @@ public final class Ast {
 
     public record Decorator(String name, List<Arg> args, Span span) {}
 
-    public record Param(String name, String type, List<String> options, Expr fallback, Span span) {}
+    public record Param(String name, String type, List<String> options, Expr fallback, Span span, Str about, int cells) {
+        public Param(String name, String type, List<String> options, Expr fallback, Span span) {
+            this(name, type, options, fallback, span, null, 0);
+        }
+
+        public boolean many() {
+            return cells > 0;
+        }
+    }
 
     public record Block(List<Stmt> stmts, Span span) {}
 
@@ -44,7 +56,11 @@ public final class Ast {
         }
     }
 
-    public record Declare(String scope, String name, Span span) implements Stmt {}
+    public record Declare(String scope, String name, String shape, Span span) implements Stmt {
+        public Declare(String scope, String name, Span span) {
+            this(scope, name, null, span);
+        }
+    }
 
     public record MultiAssign(String scope, List<String> names, List<Span> nameSpans, List<Expr> values, Span span)
             implements Stmt {}

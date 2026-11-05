@@ -183,7 +183,8 @@ class FuzzTest {
             }
             String a = Json.write(Json.parse(Json.write(first.module())));
             String b = Json.write(Json.parse(Json.write(second.module())));
-            String d = RoundTrip.firstDifference(RoundTrip.plain(Json.parse(a)), RoundTrip.plain(Json.parse(b)), "");
+            String d = RoundTrip.firstDifference(RoundTrip.normalize(DATA, Json.object(Json.parse(a))),
+                    RoundTrip.normalize(DATA, Json.object(Json.parse(b))), "");
             if (d != null) failed.add("seed " + seed + ": " + d + "\n" + printed);
         }
         assertEquals(List.of(), failed);

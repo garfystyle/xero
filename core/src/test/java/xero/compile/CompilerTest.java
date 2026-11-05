@@ -250,4 +250,14 @@ class CompilerTest {
             return in.readAllBytes();
         }
     }
+
+    @Test
+    void markerWordFindsItsSetting() {
+        String positional = Json.write(handlers("when player_join {\n    wait(1, seconds)\n}\n"));
+        assertTrue(positional.contains("\"enum\":\"SECONDS\""), positional);
+        String word = Json.write(handlers("when player_join {\n    wait(seconds, 1)\n}\n"));
+        assertTrue(word.contains("\"enum\":\"SECONDS\"") && word.contains("\"number\":1.0"), word);
+        String variable = Json.write(handlers("when player_join {\n    seconds = 3\n    wait(seconds)\n}\n"));
+        assertTrue(variable.contains("\"variable\":\"seconds\"") && !variable.contains("\"enum\":\"SECONDS\""), variable);
+    }
 }

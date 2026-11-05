@@ -4,7 +4,7 @@
 
 | Раздел | Действий | Условий |
 |:--|--:|--:|
-| [Игрок](player.md) | 173 | 42 |
+| [Игрок](player.md) | 175 | 42 |
 | [Сущность](entity.md) | 219 | 21 |
 | [Мир](world.md) | 133 | 22 |
 | [Переменные](variable.md) | 318 | 28 |
@@ -255,6 +255,8 @@
 | Отправить достижение игроку | [`send_advancement`](player.md#send_advancement) | Игрок |
 | Отправить игрока на другой сервер | [`connect_to_server`](player.md#connect_to_server) | Игрок |
 | Отправить сообщение | [`send_message`](player.md#send_message) | Игрок |
+| Отправить сообщение с наведением | [`send_hover`](player.md#send_hover) | Игрок |
+| Отправить сообщение формата MiniMessage | [`send_minimessage`](player.md#send_minimessage) | Игрок |
 | Отправить титул | [`send_title`](player.md#send_title) | Игрок |
 | Отправить экшн-бар | [`send_action_bar`](player.md#send_action_bar) | Игрок |
 | Отразить вектор относительно второго вектора | [`reflect_vector_product`](variable.md#reflect_vector_product) | Переменные |

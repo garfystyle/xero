@@ -32,7 +32,7 @@ class CircleTest {
 
     static Object normal(Map<String, Object> module) {
         List<Map<String, Object>> handlers = new ArrayList<>();
-        for (Object h : Json.array(module.get("handlers"))) handlers.add(Json.object(h));
+        for (Object h : Json.array(Decompiler.upgraded(DATA, module).get("handlers"))) handlers.add(Json.object(h));
         handlers.sort(Comparator.comparingInt(h -> h.get("position") instanceof Json.Num n ? n.intValue() : 0));
         List<Object> out = new ArrayList<>();
         for (Map<String, Object> h : handlers) {

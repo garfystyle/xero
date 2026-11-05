@@ -398,11 +398,14 @@ function activate(context) {
     }
   }));
 
-  const legend = new vscode.SemanticTokensLegend(['variable'], ['game', 'save', 'local', 'line', 'const']);
+  const legend = new vscode.SemanticTokensLegend(['variable', 'enumMember'], ['game', 'save', 'local', 'line', 'const']);
   context.subscriptions.push(vscode.languages.registerDocumentSemanticTokensProvider(selector, {
     provideDocumentSemanticTokens(doc) {
       const tokens = new vscode.SemanticTokensBuilder(legend);
-      for (const m of call('variables', doc.getText())) tokens.push(range(doc, m.start, m.end), 'variable', [m.scope]);
+      for (const m of call('variables', doc.getText())) {
+        if (m.scope === 'option') tokens.push(range(doc, m.start, m.end), 'enumMember', []);
+        else tokens.push(range(doc, m.start, m.end), 'variable', [m.scope]);
+      }
       return tokens.build();
     }
   }, legend));
@@ -731,23 +734,20 @@ async function upload(add) {
       return;
     }
     if (rows) {
-      let placed;
+      let placed = null;
       try {
         placed = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Xero: заменяю строки: ' + rows.length },
           () => game('POST', '/lines', JSON.stringify({ lines: rows }), 310000));
       } catch (e) {
-        vscode.window.showErrorMessage('Xero: строки не заменены — ' + e.message);
+        placed = null;
+      }
+      if (placed && placed.lines.every(l => l.ok)) {
+        remember();
+        await connected(true);
+        vscode.window.showInformationMessage('Xero: заменено строк ' + rows.length + ', мир не перезапускался');
         return;
       }
-      const bad = placed.lines.filter(l => !l.ok);
-      if (bad.length) {
-        vscode.window.showErrorMessage('Xero: не встало строк ' + bad.length + ' — ' + bad.map(l => l.position + ': ' + l.said).join('; '));
-        return;
-      }
-      remember();
-      await connected(true);
-      vscode.window.showInformationMessage('Xero: заменено строк ' + rows.length + ', мир не перезапускался');
-      return;
+      vscode.window.setStatusBarMessage('Xero: построчно не вышло, заливаю целиком', 4000);
     }
     let done;
     try {

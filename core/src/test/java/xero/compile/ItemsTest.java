@@ -99,7 +99,7 @@ class ItemsTest {
     @Test
     void plainAndJson() {
         assertEquals("{'minecraft:custom_name':{text:'&cне цвет',italic:0b}}", snbt("item(paper, name: plain\"&cне цвет\")"));
-        assertEquals("{'minecraft:custom_name':{text:'J',color:'red',bold:1b}}",
+        assertEquals("{'minecraft:custom_name':{text:'J',color:'red',bold:1b,italic:0b}}",
                 snbt("item(paper, name: json\"{\\\"text\\\":\\\"J\\\",\\\"color\\\":\\\"red\\\",\\\"bold\\\":true}\")"));
     }
 

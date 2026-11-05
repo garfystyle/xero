@@ -10,6 +10,7 @@ import xero.lang.Lexer;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -35,6 +36,7 @@ public final class Decompiler {
             List.of("parameters", "display_name", "display_description", "description", "icon", "is_hidden");
     private static final String CONFLICT = "?";
     private static final int SHARED_ITEM = 60;
+    private static final int SIGNATURE_WIDTH = 100;
 
     private final Data data;
     private final Names names;
@@ -43,25 +45,42 @@ public final class Decompiler {
     private final Set<String> written = new LinkedHashSet<>();
     private final Set<String> read = new LinkedHashSet<>();
     private final Map<String, Map<String, Object>> functions = new HashMap<>();
+    private final Map<String, Map<String, Object>> processes = new HashMap<>();
+    private final Set<String> indexed = new HashSet<>();
     private final Set<String> returning = new HashSet<>();
     private final Map<String, String> shapes = new HashMap<>();
     private final Set<String> notNumbers = new HashSet<>();
     private final Set<String> printedLines = new HashSet<>();
     private final Map<String, Integer> itemUses = new LinkedHashMap<>();
     private boolean literalKeys;
+    private boolean stored;
     private String sharedItems = "";
     private Map<String, String> lineParams = Map.of();
     private String current;
+    private final boolean rich;
 
-    private Decompiler(Data data, Names names) {
+    private Decompiler(Data data, Names names, boolean rich) {
         this.data = data;
         this.names = names;
+        this.rich = rich;
     }
 
     public static Result decompile(Data data, Names names, Map<String, Object> module) {
-        Decompiler d = new Decompiler(data, names);
-        String text = d.module(Json.object(Json.parse(Json.write(module))));
+        return decompile(data, names, module, true);
+    }
+
+    public static Result forDialect(Data data, Names names, Map<String, Object> module) {
+        return decompile(data, names, module, false);
+    }
+
+    private static Result decompile(Data data, Names names, Map<String, Object> module, boolean rich) {
+        Decompiler d = new Decompiler(data, names, rich);
+        String text = d.module(upgraded(data, module));
         return new Result(text, List.copyOf(d.notes));
+    }
+
+    public static Map<String, Object> upgraded(Data data, Map<String, Object> module) {
+        return Legacy.upgrade(data, Json.object(Json.parse(Json.write(module))));
     }
 
     private String module(Map<String, Object> module) {
@@ -70,16 +89,15 @@ public final class Decompiler {
         if (list instanceof List<?> l) for (Object h : l) if (h instanceof Map<?, ?>) handlers.add(Json.object(h));
         handlers.sort(Comparator.comparingInt(h -> h.get("position") instanceof Json.Num n ? n.intValue() : Integer.MAX_VALUE));
         for (Map<String, Object> h : handlers) {
-            if (("function".equals(h.get("type")) || "process".equals(h.get("type"))) && h.get("name") instanceof String n
-                    && functions.put(n, h) != null)
+            if (h.get("name") instanceof String n && lines(h) != null && lines(h).put(n, h) != null)
                 notes.add("«" + n + "» в мире не одна — сервер задвоил её при заливке, вторая помечена @twin");
             if (h.get("values") instanceof List<?> l) h.put("values", Wire.tidyDeclaration(Json.array(l)));
             tidy(h.get("operations"));
+            numbers(h.get("operations"));
         }
         scan(module);
         for (Map.Entry<String, Map<String, Object>> f : functions.entrySet())
-            if ("function".equals(f.getValue().get("type")) && returns(f.getValue().get("operations"), Wire.RESULT + f.getKey()))
-                returning.add(f.getKey());
+            if (returns(f.getValue().get("operations"), Wire.RESULT + f.getKey())) returning.add(f.getKey());
         shapes(module);
         StringBuilder body = new StringBuilder();
         int expected = 0;
@@ -99,20 +117,30 @@ public final class Decompiler {
             List<String> declared = new ArrayList<>();
             for (Map.Entry<String, String> e : scopes.entrySet()) {
                 if (!scope.equals(e.getValue())) continue;
-                if (scope.equals("local") && !(read.contains(e.getKey()) && !written.contains(e.getKey()))) continue;
+                if (scope.equals("local") && !indexed.contains(e.getKey())
+                        && !(read.contains(e.getKey()) && !written.contains(e.getKey()))) continue;
                 declared.add(e.getKey());
             }
             declared.sort(String.CASE_INSENSITIVE_ORDER.thenComparing(Comparator.naturalOrder()));
-            for (String name : declared) header.append(scope).append(' ').append(varName(name)).append('\n');
+            for (String name : declared) header.append(scope).append(' ').append(varName(name)).append(shapeMark(name)).append('\n');
         }
         String printed = header.isEmpty() ? code : header + "\n" + code;
         Formatter.Result tidy = Formatter.format(printed);
         return tidy.ok() ? tidy.text() : printed;
     }
 
+    private Map<String, Map<String, Object>> lines(Map<String, Object> h) {
+        return "function".equals(h.get("type")) ? functions : "process".equals(h.get("type")) ? processes : null;
+    }
+
+    private String shapeMark(String name) {
+        return indexed.contains(name) ? ": " + shapes.get(name) : "";
+    }
+
     private String shareItems(String body) {
         Set<String> taken = new HashSet<>(scopes.keySet());
         taken.addAll(functions.keySet());
+        taken.addAll(processes.keySet());
         StringBuilder consts = new StringBuilder();
         String out = body;
         for (Map.Entry<String, Integer> e : itemUses.entrySet()) {
@@ -144,6 +172,16 @@ public final class Decompiler {
         String name = base;
         for (int n = 2; taken.contains(name) || !Keywords.plainName(name); n++) name = base + "_" + n;
         return name;
+    }
+
+    private static void numbers(Object o) {
+        if (o instanceof List<?> l) {
+            for (Object x : l) numbers(x);
+        } else if (o instanceof Map<?, ?> raw) {
+            Map<String, Object> m = Json.object(raw);
+            if ("number".equals(m.get("type")) && m.get("number") instanceof String s && Wire.plainNumber(s)) m.put("number", new Json.Num(s));
+            for (Object v : m.values()) numbers(v);
+        }
     }
 
     private void tidy(Object ops) {
@@ -259,16 +297,16 @@ public final class Decompiler {
         lineParams = lineParams(h);
         List<Object> ops = h.get("operations") instanceof List<?> l ? Json.array(l) : List.of();
         if ("event".equals(type)) {
-            if (!only(h, "type", "event", "position", "operations") || !(h.get("event") instanceof String event)
-                    || !Lexer.identifier(event)) {
+            if (!(h.get("event") instanceof String event) || !Lexer.identifier(event)) {
                 notes.add("строка пропущена: непонятное событие " + Json.write(h.get("event")));
                 return null;
             }
+            unknownFields(h, "type", "event", "position", "operations");
             if (!data.events().containsKey(event)) notes.add("события «" + event + "» нет в данных");
             return "when " + event + " " + block(ops, 0) + "\n";
         }
-        if (("function".equals(type) || "process".equals(type)) && h.get("name") instanceof String name
-                && only(h, "type", "name", "values", "position", "operations")) {
+        if (("function".equals(type) || "process".equals(type)) && h.get("name") instanceof String name) {
+            unknownFields(h, "type", "name", "values", "position", "operations");
             if (name.indexOf('`') >= 0 || name.indexOf('\n') >= 0) {
                 notes.add("строка пропущена: имя «" + name + "» не записать");
                 return null;
@@ -276,13 +314,19 @@ public final class Decompiler {
             List<Object> values = h.get("values") instanceof List<?> l ? Json.array(l) : null;
             StringBuilder out = new StringBuilder();
             String params = declaration(values, out);
-            if (!printedLines.add(name)) out.append("@twin\n");
+            if (!printedLines.add(type + ":" + name)) out.append("@twin\n");
             out.append("process".equals(type) ? "process " : "func ").append(functionName(name))
                     .append('(').append(params).append(") ").append(block(ops, 0)).append('\n');
             return out.toString();
         }
         notes.add("строка пропущена: " + Json.write(h).substring(0, Math.min(80, Json.write(h).length())));
         return null;
+    }
+
+    private void unknownFields(Map<String, Object> h, String... known) {
+        Set<String> extra = new LinkedHashSet<>(h.keySet());
+        extra.removeAll(Set.of(known));
+        if (!extra.isEmpty()) notes.add("у строки лишние поля, они не записаны: " + String.join(", ", extra));
     }
 
     private static Map<String, String> lineParams(Map<String, Object> h) {
@@ -351,29 +395,50 @@ public final class Decompiler {
         List<Object> list = Json.array(array.get("values"));
         for (int i = 0; i < list.size(); i++) {
             Map<String, Object> p = Json.object(list.get(i));
-            if (!(p.get("name") instanceof String name) || !Keywords.plainName(name))
+            if (!(p.get("name") instanceof String name) || unwritable(name) || !rich && !Keywords.plainName(name))
                 throw new Raw("имя параметра");
+            String about = p.get("description") instanceof String d ? d : "";
+            String note = parameterNote(about);
             if ("enum".equals(p.get("type_key"))) {
-                out.add(markerParameter(p, name, i));
+                out.add(markerParameter(p, name, i, about, note));
                 continue;
             }
             String type = p.get("value_type") instanceof String t ? t : "";
             boolean required = "true".equals(p.get("is_required"));
             String fallback = p.get("default_value") instanceof String f ? f : "";
-            Map<String, Object> expected = Wire.parameter(name, type, required, fallback, i);
-            if (!sameParameter(expected, p)) throw new Raw("параметр " + name);
-            String printed = name + ("any".equals(type) ? "" : ": " + type);
+            boolean plural = "plural".equals(p.get("type_key"));
+            if (plural && !rich) throw new Raw("множественный параметр " + name);
+            int cells = plural && p.get("slots") instanceof String slots ? Json.array(Json.parse(slots)).size() : 0;
+            Map<String, Object> expected = plural
+                    ? Wire.pluralParameter(name, type, required, fallback, List.of(), about)
+                    : Wire.parameter(name, type, required, fallback, i, about);
+            if (!sameParameter(expected, p) || plural && cells == 0) throw new Raw("параметр " + name);
+            String mark = plural ? ": " + type + "[" + cells + "]" : "any".equals(type) ? "" : ": " + type;
+            String printed = varName(name) + mark + note;
             if (!required) {
                 Object def = Json.parse(fallback);
-                String v = value(def, false);
+                String v = rich && isHole(def) ? "_" : value(def, false);
                 if (v.startsWith("raw(")) throw new Raw("значение по умолчанию");
+                if (Wire.lazy(def) && !v.startsWith("num(")) v = "literal(" + v + ")";
                 printed += " = " + v;
-            } else if (!"{}".equals(fallback)) {
+            } else if (!(plural ? Wire.EMPTY_LIST : "{}").equals(fallback)) {
                 throw new Raw("значение по умолчанию у обязательного");
             }
             out.add(printed);
         }
-        return String.join(", ", out);
+        return signature(out);
+    }
+
+    private static String signature(List<String> params) {
+        String flat = String.join(", ", params);
+        return flat.length() <= SIGNATURE_WIDTH ? flat : "\n    " + String.join(",\n    ", params) + "\n";
+    }
+
+    private String parameterNote(String about) {
+        if (about.isEmpty() || about.equals(Wire.NO_TRANSLATIONS)) return "";
+        String note = rich ? fallbackOnly(about, false) : null;
+        if (note == null) throw new Raw("описание параметра");
+        return " " + note;
     }
 
     private static boolean sameParameter(Map<String, Object> a, Map<String, Object> b) {
@@ -381,11 +446,13 @@ public final class Decompiler {
         for (Map<String, Object> m : List.of(x, y)) {
             m.remove("slot");
             m.remove("description_slot");
+            m.remove("slots");
+            m.remove("description_slots");
         }
         return x.equals(y);
     }
 
-    private String markerParameter(Map<String, Object> p, String name, int index) {
+    private String markerParameter(Map<String, Object> p, String name, int index, String about, String note) {
         if (!(p.get("elements") instanceof String raw) || !(p.get("default_element") instanceof String fallback))
             throw new Raw("параметр " + name);
         List<String> options = new ArrayList<>();
@@ -394,37 +461,41 @@ public final class Decompiler {
             if (!(option instanceof String text)) throw new Raw("параметр " + name);
             options.add(text);
         }
-        if (options.isEmpty() || !sameParameter(Wire.markerParameter(name, options, fallback, index), p)) throw new Raw("параметр " + name);
+        if (options.isEmpty() || !sameParameter(Wire.markerParameter(name, options, fallback, index, about), p)) throw new Raw("параметр " + name);
         List<String> printed = new ArrayList<>();
         for (String o : options) printed.add(quote(o, null));
-        String out = name + ": enum(" + String.join(", ", printed) + ")";
+        String out = varName(name) + ": enum(" + String.join(", ", printed) + ")" + note;
         return fallback.equals(options.get(0)) ? out : out + " = " + quote(fallback, null);
     }
 
     private String localized(Object raw) {
         Map<String, Object> v = Json.object(raw);
         if (only(v, "type", "data") && "localized_text".equals(v.get("type")) && v.get("data") instanceof String data) {
-            try {
-                Map<String, Object> d = Json.object(Json.parse(data));
-                Map<String, Object> fallback = d.get("fallback") instanceof Map<?, ?> f ? Json.object(f) : null;
-                if (only(d, "translations", "fallback") && Map.of().equals(d.get("translations")) && fallback != null
-                        && only(fallback, "rawText", "parsingType") && fallback.get("rawText") instanceof String text
-                        && fallback.get("parsingType") instanceof String type
-                        && PARSINGS.contains(type.toLowerCase(Locale.ROOT))
-                        && type.equals(type.toUpperCase(Locale.ROOT))) {
-                    Map<String, Object> rebuilt = Context.obj("translations", Context.obj(),
-                            "fallback", Context.obj("rawText", text, "parsingType", type));
-                    if (Json.write(rebuilt).equals(data)) {
-                        String prefix = prefix(type.toLowerCase(Locale.ROOT));
-                        List<String> lines = new ArrayList<>();
-                        for (String line : text.split("\n", -1)) lines.add(quote(line, prefix));
-                        return String.join(", ", lines);
-                    }
-                }
-            } catch (RuntimeException ignored) {
-            }
+            String lines = fallbackOnly(data, true);
+            if (lines != null) return lines;
         }
         return rawValue(raw);
+    }
+
+    private static String fallbackOnly(String data, boolean byLines) {
+        try {
+            Map<String, Object> d = Json.object(Json.parse(data));
+            Map<String, Object> fallback = d.get("fallback") instanceof Map<?, ?> f ? Json.object(f) : null;
+            if (!only(d, "translations", "fallback") || !Map.of().equals(d.get("translations")) || fallback == null
+                    || !only(fallback, "rawText", "parsingType") || !(fallback.get("rawText") instanceof String text)
+                    || !(fallback.get("parsingType") instanceof String type) || !PARSINGS.contains(type.toLowerCase(Locale.ROOT))
+                    || !type.equals(type.toUpperCase(Locale.ROOT))) return null;
+            Map<String, Object> rebuilt = Context.obj("translations", Context.obj(),
+                    "fallback", Context.obj("rawText", text, "parsingType", type));
+            if (!Json.write(rebuilt).equals(data)) return null;
+            String prefix = prefix(type.toLowerCase(Locale.ROOT));
+            if (!byLines) return quote(text, prefix);
+            List<String> lines = new ArrayList<>();
+            for (String line : text.split("\n", -1)) lines.add(quote(line, prefix));
+            return String.join(", ", lines);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private String block(List<Object> ops, int depth) {
@@ -487,7 +558,7 @@ public final class Decompiler {
                     if (!call.startsWith(functionName(f) + "(")) return null;
                     Map<String, Object> lhs = Json.object(Json.object(Json.array(next.get("values")).get(0)).get("value"));
                     String name = assignable(lhs);
-                    if (name == null) return null;
+                    if (name == null || current != null && (Wire.RESULT + current).equals(lhs.get("variable"))) return null;
                     written.add(Json.string(lhs.get("variable")));
                     return name + " = " + call;
                 }
@@ -580,8 +651,10 @@ public final class Decompiler {
                 return fitting(a.arg("value").kind(), bound.get("value"), false) + " in [" + String.join(", ", printed) + "]";
             }
             case "if_variable_number_in_range" -> {
-                if (!bound.keySet().equals(Set.of("value", "min", "max", "including"))
-                        || !enumIs(bound.get("including"), "INCLUDE_ALL")) return null;
+                Set<String> range = new HashSet<>(bound.keySet());
+                range.remove("including");
+                if (!range.equals(Set.of("value", "min", "max"))
+                        || bound.containsKey("including") && !enumIs(bound.get("including"), "INCLUDE_ALL")) return null;
                 return fitting(a.arg("value").kind(), bound.get("value"), false) + " in "
                         + fitting(a.arg("min").kind(), bound.get("min"), false) + ".."
                         + fitting(a.arg("max").kind(), bound.get("max"), false);
@@ -597,6 +670,7 @@ public final class Decompiler {
                 String right = assignable(m);
                 if (right == null) return null;
                 read(m);
+                indexed.add(name);
                 return fitting(a.arg(cell).kind(), one, false) + " in " + right;
             }
             default -> {
@@ -624,6 +698,7 @@ public final class Decompiler {
         if (!(op.get("values") instanceof List<?> rawValues)) throw new Raw("нет values");
         List<Object> values = Json.array(rawValues);
         if (id.equals("empty") && only(op, "action", "values") && values.isEmpty()) return "_";
+        if (current != null && !returning.contains(current) && isReturn(op)) return "return";
         if (id.equals("call_function")) return invoke(op, values);
         if (id.equals("start_process")) return start(op, values);
         Data.Action a = data.actions().get(id);
@@ -635,7 +710,7 @@ public final class Decompiler {
                 : only(op, "action", "values", "selection", "operations")))
             throw new Raw("лишние поля");
         if (a.container() != op.containsKey("operations")) throw new Raw("тело");
-        String target = op.containsKey("selection") ? target(a, op.get("selection")) : "";
+        String target = !conditional && op.containsKey("selection") ? target(a, op.get("selection")) : "";
         String body = a.container() ? " " + block(Json.array(op.get("operations")), depth) : "";
         if (target.isEmpty()) {
             String loop = loop(a, op, values, body);
@@ -645,7 +720,7 @@ public final class Decompiler {
             Map<String, Object> c = op.get("conditional") instanceof Map<?, ?> m ? Json.object(m) : null;
             if (c == null || !only(c, "action", "is_inverted") || !(c.get("action") instanceof String cid)
                     || !(c.get("is_inverted") instanceof Boolean inverted)) throw new Raw("условие");
-            return target + actionName(a) + "(" + condition(cid, values, inverted, null) + ")" + body;
+            return actionName(a) + "(" + condition(cid, values, inverted, op.get("selection")) + ")" + body;
         }
         Map<String, Object> bound = bound(a, values);
         if (target.isEmpty() && !a.container()) {
@@ -662,7 +737,7 @@ public final class Decompiler {
             if (c == null || !only(c, "action", "is_inverted") || !(c.get("action") instanceof String cid)
                     || !(c.get("is_inverted") instanceof Boolean inverted)) return null;
             try {
-                return "while " + condition(cid, values, inverted, null) + body;
+                return "while " + condition(cid, values, inverted, op.get("selection")) + body;
             } catch (Raw | IllegalArgumentException | ClassCastException e) {
                 return null;
             }
@@ -741,6 +816,8 @@ public final class Decompiler {
 
     private String sugar(Data.Action a, Map<String, Object> bound) {
         if (a.id().equals("set_variable_multiple")) return multiple(bound);
+        String built = builtLiteral(a, bound);
+        if (built != null) return built;
         String index = index(a, bound);
         if (index != null) return index;
         Data.Arg result = a.result();
@@ -782,6 +859,57 @@ public final class Decompiler {
         return name + " = " + actionName(a) + "(" + args + ")";
     }
 
+    private String builtLiteral(Data.Action a, Map<String, Object> bound) {
+        String name = assignable(bound.get("variable"));
+        if (name == null) return null;
+        String literal = switch (a.id()) {
+            case "set_variable_create_list" -> bound.size() == 2 ? listLiteral(bound.get("values")) : null;
+            case "set_variable_create_map_from_values" -> bound.size() == 3 ? mapLiteral(bound.get("keys"), bound.get("values")) : null;
+            case "set_variable_set_all_coordinates" -> built("loc", bound, List.of("x", "y", "z", "yaw", "pitch"));
+            case "set_variable_vector" -> built("vec", bound, List.of("x", "y", "z"));
+            default -> null;
+        };
+        if (literal == null) return null;
+        written.add(Json.string(Json.object(bound.get("variable")).get("variable")));
+        return name + " = " + literal;
+    }
+
+    private String built(String call, Map<String, Object> bound, List<String> keys) {
+        List<String> parts = new ArrayList<>();
+        boolean dynamic = false;
+        for (String key : keys) {
+            if (!bound.containsKey(key)) continue;
+            if (parts.size() != keys.indexOf(key)) return null;
+            dynamic |= Wire.dynamic(bound.get(key));
+            parts.add(value(bound.get(key), false));
+        }
+        return dynamic && parts.size() >= 3 && parts.size() + 1 == bound.size() ? call + "(" + String.join(", ", parts) + ")" : null;
+    }
+
+    private String listLiteral(Object values) {
+        List<Object> cells = cellsOf(values);
+        if (cells == null || cells.stream().noneMatch(Wire::dynamic)) return null;
+        List<String> printed = new ArrayList<>();
+        for (Object cell : cells) printed.add(value(cell, true));
+        return "[" + String.join(", ", printed) + "]";
+    }
+
+    private String mapLiteral(Object keys, Object values) {
+        List<Object> names = cellsOf(keys), cells = cellsOf(values);
+        if (names == null || cells == null || names.size() < cells.size() || cells.stream().noneMatch(Wire::dynamic)) return null;
+        List<String> printed = new ArrayList<>();
+        for (int i = 0; i < names.size(); i++) {
+            if (Wire.dynamic(names.get(i)) || isHole(names.get(i))) return null;
+            printed.add(value(names.get(i), false) + ": " + (i < cells.size() ? value(cells.get(i), true) : "_"));
+        }
+        return "{" + String.join(", ", printed) + "}";
+    }
+
+    private static List<Object> cellsOf(Object v) {
+        return v instanceof Map<?, ?> m && "array".equals(m.get("type")) && m.get("values") instanceof List<?> cells
+                && !cells.isEmpty() ? Json.array(cells) : null;
+    }
+
     private String index(Data.Action a, Map<String, Object> bound) {
         boolean read = a.id().equals("set_variable_get_list_value") || a.id().equals("set_variable_get_map_value_single")
                 || a.id().equals("set_variable_get_map_value");
@@ -808,6 +936,7 @@ public final class Decompiler {
         } else {
             if (key instanceof Map<?, ?> k && "variable".equals(k.get("type"))) {
                 if (!"map".equals(shapes.get(name)) || !isVariableAlone(k)) return null;
+                indexed.add(name);
                 printedKey = value(key, false);
             } else {
                 if (!(key instanceof Map<?, ?> k) || !only(Json.object(k), "type", "text", "parsing")
@@ -860,7 +989,8 @@ public final class Decompiler {
 
     private String printed(String name, String scope) {
         if (unwritable(name) || !SCOPES.contains(scope)) return null;
-        if (CONFLICT.equals(scopes.get(name))) return scope + "." + varName(name);
+        boolean shadowed = lineParams.containsKey(name) && !scope.equals("line");
+        if (shadowed || CONFLICT.equals(scopes.get(name))) return scope + "." + varName(name);
         return scope.equals(scopes.get(name)) ? varName(name) : null;
     }
 
@@ -885,7 +1015,7 @@ public final class Decompiler {
 
     private String args(Data.Action a, List<Object> values, Map<String, Object> bound, boolean statement, String skip) {
         List<String> parts = new ArrayList<>();
-        boolean positional = true;
+        boolean positional = !extraFirst(a, skip);
         for (int i = 0; i < a.args().size(); i++) {
             Data.Arg arg = a.args().get(i);
             if (arg.id().equals(skip)) continue;
@@ -911,6 +1041,12 @@ public final class Decompiler {
             parts.add(extra.getKey() + ": " + (option != null ? option : rawValue(extra.getValue())));
         }
         return String.join(", ", parts);
+    }
+
+    private static boolean extraFirst(Data.Action a, String skip) {
+        if (!Wire.IN_PLACE.contains(a.id())) return false;
+        Data.Arg first = a.args().get(0);
+        return Data.VARIABLE.equals(first.kind()) && !first.id().equals(skip);
     }
 
     private void markWritten(Data.Action a, Data.Arg arg, Object v) {
@@ -966,6 +1102,18 @@ public final class Decompiler {
         return "enum(" + quote(id, null) + ", " + printed + ")";
     }
 
+    private String boundVariable(Object v, String fallback, Collection<String> options) {
+        if (!(v instanceof Map<?, ?> raw)) return null;
+        Map<String, Object> m = Json.object(raw);
+        if (!only(m, "type", "enum", "variable", "scope") || !"enum".equals(m.get("type"))
+                || !fallback.toUpperCase(Locale.ROOT).equals(m.get("enum"))
+                || !(m.get("variable") instanceof String name) || !(m.get("scope") instanceof String scope)) return null;
+        if (options.contains(name.toLowerCase(Locale.ROOT))) return null;
+        String printed = printed(name, scope);
+        if (printed != null) read.add(name);
+        return printed;
+    }
+
     private String marker(Data.Setting s, Object v) {
         String call = enumCall(v);
         if (call == null) throw new Raw("настройка " + s.id());
@@ -999,11 +1147,11 @@ public final class Decompiler {
         Object fn = byName.get("function_name");
         String name = plainName(fn);
         Map<String, Object> known = name == null ? null : functions.get(name);
-        List<String> args = passedArgs(known == null ? byName.get("args") : withoutDefaults(byName.get("args"), known));
+        List<String> args = passedArgs(known == null ? byName.get("args") : withoutDefaults(byName.get("args"), known), known);
         if (name != null) {
             Map<String, Object> f = known;
-            if (f == null) return "`" + name + "`(" + String.join(", ", args) + ")";
-            if ("function".equals(f.get("type")) && (args.isEmpty() || acceptsArgs(f, byName.get("args"))))
+            if (f == null && !processes.containsKey(name)) return "`" + name + "`(" + String.join(", ", args) + ")";
+            if (f != null && (args.isEmpty() || acceptsArgs(f, byName.get("args"))))
                 return functionName(name) + "(" + String.join(", ", inOrder(args, f)) + ")";
         }
         String head = isHole(fn) ? rawValue(fn) : value(fn, false);
@@ -1027,22 +1175,31 @@ public final class Decompiler {
             if (i <= last) throw new Raw("значения запуска");
             last = i;
         }
+        if (!byName.containsKey("process_name")) throw new Raw("запуск без имени");
         String name = plainName(byName.get("process_name"));
-        if (name == null) throw new Raw("имя процесса");
-        Map<String, Object> f = functions.get(name);
+        Map<String, Object> f = name == null ? null : processes.get(name);
+        boolean dynamic = name == null || f == null && functions.containsKey(name);
         List<String> parts = new ArrayList<>();
         for (Map.Entry<String, List<String>> setting : Wire.START_SETTINGS.entrySet()) {
             String key = setting.getKey();
             if (!byName.containsKey(key)) continue;
             Object v = byName.get(key);
+            String bound = boundVariable(v, setting.getValue().get(0), setting.getValue());
+            if (bound != null) {
+                parts.add(key + ": " + bound);
+                continue;
+            }
             if (!(v instanceof Map<?, ?> m) || !only(Json.object(m), "type", "enum") || !"enum".equals(m.get("type"))
                     || !(m.get("enum") instanceof String id) || !id.equals(id.toUpperCase(Locale.ROOT))
                     || !setting.getValue().contains(id.toLowerCase(Locale.ROOT))) throw new Raw(key);
             parts.add(key + ": " + id.toLowerCase(Locale.ROOT));
         }
-        parts.addAll(f == null ? passedArgs(byName.get("args")) : inOrder(passedArgs(withoutDefaults(byName.get("args"), f)), f));
-        if (f != null && !"process".equals(f.get("type"))) throw new Raw("это не процесс");
+        parts.addAll(f == null ? passedArgs(byName.get("args"), null) : inOrder(passedArgs(withoutDefaults(byName.get("args"), f), f), f));
         if (f != null && byName.containsKey("args") && !acceptsArgs(f, byName.get("args"))) throw new Raw("параметры");
+        if (dynamic) {
+            parts.add(0, value(byName.get("process_name"), false));
+            return "start call(" + String.join(", ", parts) + ")";
+        }
         String printed = f == null ? "`" + name + "`" : functionName(name);
         return "start " + printed + "(" + String.join(", ", parts) + ")";
     }
@@ -1051,7 +1208,7 @@ public final class Decompiler {
         List<String> order = new ArrayList<>(lineParams(function).keySet());
         List<String> out = new ArrayList<>(args);
         out.sort(Comparator.comparingInt(a -> {
-            int i = order.indexOf(a.substring(0, a.indexOf(':')));
+            int i = order.indexOf(a.substring(0, a.indexOf(": ")).replace("`", ""));
             return i < 0 ? Integer.MAX_VALUE : i;
         }));
         return out;
@@ -1059,31 +1216,55 @@ public final class Decompiler {
 
     private String plainName(Object v) {
         if (v instanceof Map<?, ?> m && only(Json.object(m), "type", "text", "parsing") && "text".equals(m.get("type"))
-                && m.get("text") instanceof String name && !name.isEmpty() && name.indexOf('`') < 0 && name.indexOf('\n') < 0
+                && m.get("text") instanceof String name && name.indexOf('`') < 0 && name.indexOf('\n') < 0
                 && ("legacy".equals(m.get("parsing")) || "plain".equals(m.get("parsing")) && name.indexOf('&') < 0)) return name;
         return null;
     }
 
-    private List<String> passedArgs(Object raw) {
+    private List<String> passedArgs(Object raw, Map<String, Object> function) {
         List<String> out = new ArrayList<>();
         if (raw == null) return out;
         if (!(raw instanceof Map<?, ?> m) || !only(Json.object(m), "type", "values") || !"map".equals(m.get("type"))
-                || !(m.get("values") instanceof Map<?, ?> entries) || entries.isEmpty()) throw new Raw("args");
+                || !(m.get("values") instanceof Map<?, ?> entries)) throw new Raw("args");
         for (Map.Entry<?, ?> e : entries.entrySet()) {
             String key = (String) e.getKey();
             String param;
             try {
                 Map<String, Object> k = Json.object(Json.parse(key));
                 if (!only(k, "type", "text", "parsing") || !"text".equals(k.get("type")) || !"plain".equals(k.get("parsing"))
-                        || !(k.get("text") instanceof String t) || !Keywords.plainName(t)
+                        || !(k.get("text") instanceof String t) || t.indexOf('`') >= 0 || t.indexOf('\n') >= 0
                         || !Json.write(k).equals(key)) throw new Raw("ключ аргумента");
                 param = t;
             } catch (Json.Error | IllegalArgumentException ex) {
                 throw new Raw("ключ аргумента");
             }
-            out.add(param + ": " + (isHole(e.getValue()) ? rawValue(e.getValue()) : value(e.getValue(), false)));
+            boolean cells = isArray(e.getValue()) && takesMany(function, param);
+            out.add(varName(param) + ": " + (cells ? cellsText(e.getValue()) : passed(e.getValue())));
         }
         return out;
+    }
+
+    private String cellsText(Object array) {
+        List<String> printed = new ArrayList<>();
+        for (Object cell : Json.array(Json.object(array).get("values"))) printed.add(passed(cell));
+        return "[" + String.join(", ", printed) + "]";
+    }
+
+    private String passed(Object v) {
+        String printed = value(v, true);
+        return Wire.lazy(v) && !printed.startsWith("num(") ? "literal(" + printed + ")" : printed;
+    }
+
+    private static boolean takesMany(Map<String, Object> function, String param) {
+        if (function == null || !(function.get("values") instanceof List<?> values)) return false;
+        for (Object raw : values) {
+            Map<String, Object> e = Json.object(raw);
+            if (!"parameters".equals(e.get("name")) || !(e.get("value") instanceof Map<?, ?> array)
+                    || !(array.get("values") instanceof List<?> list)) continue;
+            for (Object p : list)
+                if (p instanceof Map<?, ?> m && param.equals(m.get("name"))) return "plural".equals(m.get("type_key"));
+        }
+        return false;
     }
 
     private Object withoutDefaults(Object args, Map<String, Object> f) {
@@ -1113,8 +1294,8 @@ public final class Decompiler {
                 Map<String, Object> pm = Json.object(p);
                 if (!name.equals(pm.get("name"))) continue;
                 if ("enum".equals(pm.get("type_key")))
-                    return value instanceof Map<?, ?> v && "text".equals(v.get("type")) && "plain".equals(v.get("parsing"))
-                            && Objects.equals(v.get("text"), pm.get("default_element"));
+                    return isHole(value) || value instanceof Map<?, ?> v && "text".equals(v.get("type"))
+                            && "plain".equals(v.get("parsing")) && Objects.equals(v.get("text"), pm.get("default_element"));
                 return isHole(value) && !"true".equals(pm.get("is_required"));
             }
         }
@@ -1226,7 +1407,7 @@ public final class Decompiler {
         String head = whole.substring(1, open), inner = whole.substring(open + 1, whole.length() - 1);
         if (inner.isEmpty() || inner.matches(".*[`\"\\\\{}].*")) return null;
         if (head.equals("math")) {
-            String printed = formula(whole);
+            String printed = formula(whole, true);
             return printed == null || printed.matches("[^ (]+") ? null : printed;
         }
         if (head.equals("val"))
@@ -1263,21 +1444,25 @@ public final class Decompiler {
         if (!only(m, "type", "number")) return null;
         Object n = m.get("number");
         if (n instanceof String s) {
+            if (Wire.plainNumber(s)) return literal(new Json.Num(s));
             String length = length(s);
             if (length != null) return length;
-            String formula = formula(s);
+            String formula = formula(s, false);
             return formula != null ? formula : "num(" + quote(s, null) + ")";
         }
         return n instanceof Json.Num num ? literal(num) : null;
     }
 
-    private String formula(String text) {
+    private String formula(String text, boolean exact) {
         if (!text.startsWith("%math(") || !text.endsWith(")")) return null;
         String inner = text.substring("%math(".length(), text.length() - 1);
         MathPrint.Node node = MathPrint.parse(inner);
-        if (node == null || !MathPrint.moving(node) || !MathPrint.math(node, 0).equals(inner)) return null;
-        if (node instanceof MathPrint.Call call
-                && (names.resolve(Names.Space.ACTION, call.name()) != null || functions.containsKey(call.name()))) return null;
+        if (node == null || node instanceof MathPrint.Bare || node instanceof MathPrint.Placed || node instanceof MathPrint.Value || !MathPrint.moving(node)
+                || exact && !MathPrint.math(node, 0).equals(inner)) return null;
+        if (node instanceof MathPrint.Call call) {
+            Names.Entry action = names.resolve(Names.Space.ACTION, call.name());
+            if (functions.containsKey(call.name()) || action != null && !Formula.overflows(action.action(), call.args().size())) return null;
+        }
         return MathPrint.printed(node, this::formulaVariable, this::formulaValue);
     }
 
@@ -1298,7 +1483,7 @@ public final class Decompiler {
         if (unwritable(name) || !SCOPES.contains(scope) || lineParams.containsKey(name)) return null;
         read.add(name);
         boolean ascii = name.matches("[A-Za-z_][A-Za-z0-9_]*") && !Texts.mathWord(name);
-        if (!ascii && scope.equals(scopes.get(name))) return varName(name);
+        if ((!ascii || scope.equals("local")) && scope.equals(scopes.get(name))) return varName(name);
         return scope + "." + varName(name);
     }
 
@@ -1381,7 +1566,7 @@ public final class Decompiler {
     }
 
     public static String fields(Data data, Names names, String base64) {
-        String printed = new Decompiler(data, names).fields(base64);
+        String printed = new Decompiler(data, names, true).fields(base64);
         if (printed == null) return null;
         Compiler.Result r = Compiler.compile(data, names, "when world_start {\n    x = " + printed + "\n}\n");
         if (!r.ok()) return null;
@@ -1395,7 +1580,7 @@ public final class Decompiler {
     }
 
     private String fields(String b64) {
-        Items.Stack s = b64.equals(Items.EMPTY) ? null : Items.decode(b64);
+        Items.Stack s = b64.equals(Items.EMPTY) ? null : Items.readable(b64);
         if (s == null || s.count() < 1 || s.count() > 99 || !data.minecraft().items().contains(s.id())) return null;
         String id = shortId(s.id());
         return id == null ? null : stack(id, s);
@@ -1575,13 +1760,29 @@ public final class Decompiler {
     private String array(Map<String, Object> m) {
         if (!only(m, "type", "values") || !(m.get("values") instanceof List<?> cells)) return null;
         if (!cells.isEmpty() && isHole(cells.get(cells.size() - 1))) return null;
+        boolean outer = stored;
+        stored = outer || Wire.dynamic(m);
         List<String> printed = new ArrayList<>();
         for (Object c : cells) printed.add(value(c, true));
-        return "[" + String.join(", ", printed) + "]";
+        String literal = "[" + String.join(", ", printed) + "]";
+        boolean wrap = stored && !outer;
+        stored = outer;
+        return wrap ? "literal(" + literal + ")" : literal;
     }
 
     private String map(Map<String, Object> m) {
         if (!only(m, "type", "values") || !(m.get("values") instanceof Map<?, ?> entries)) return null;
+        boolean outer = stored;
+        stored = outer || Wire.dynamic(m);
+        try {
+            String literal = entries(entries);
+            return literal != null && stored && !outer ? "literal(" + literal + ")" : literal;
+        } finally {
+            stored = outer;
+        }
+    }
+
+    private String entries(Map<?, ?> entries) {
         List<String> printed = new ArrayList<>();
         for (Map.Entry<?, ?> e : entries.entrySet()) {
             String key = (String) e.getKey();
@@ -1619,11 +1820,11 @@ public final class Decompiler {
     }
 
     private static String varName(String name) {
-        return Keywords.name(name);
+        return name.equals("value") ? name : Keywords.name(name);
     }
 
     private boolean unwritable(String name) {
-        return name.isEmpty() || name.indexOf('`') >= 0 || name.indexOf('\n') >= 0;
+        return name.indexOf('`') >= 0 || name.indexOf('\n') >= 0;
     }
 
     private static boolean isHole(Object v) {

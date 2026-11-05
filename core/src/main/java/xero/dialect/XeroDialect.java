@@ -59,7 +59,7 @@ public final class XeroDialect extends Dialect {
         if (syntax == null) {
             syntax = Syntax.of(Keywords.all()).literals(Set.of("true", "false", "истина", "ложь"))
                     .comments("//", null, "/*", "*/", false)
-                    .strings("\"", "lmpj", true, true).backtick("g s l game save local line")
+                    .strings("\"", "mm plain json legacy", true, true).backtick("g s l game save local line")
                     .joiner(".").decorator('@').build();
         }
         return syntax;

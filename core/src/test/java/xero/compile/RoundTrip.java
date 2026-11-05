@@ -14,7 +14,7 @@ import java.util.TreeMap;
 final class RoundTrip {
     static Object normalize(Data data, Map<String, Object> module) {
         List<Map<String, Object>> handlers = new ArrayList<>();
-        for (Object h : Json.array(module.get("handlers"))) handlers.add(Json.object(h));
+        for (Object h : Json.array(Decompiler.upgraded(data, module).get("handlers"))) handlers.add(Json.object(h));
         handlers.sort(Comparator.comparingInt(h -> h.get("position") instanceof Json.Num n ? n.intValue() : 0));
         List<Object> out = new ArrayList<>();
         for (Map<String, Object> h : handlers) {
@@ -69,7 +69,7 @@ final class RoundTrip {
             Map<String, Object> e = Json.object(v);
             if ("function_name".equals(e.get("name")) || "process_name".equals(e.get("name")))
                 name = Json.object(e.get("value")).get("text");
-            if ("args".equals(e.get("name"))) args = Json.object(Json.object(e.get("value")).get("values"));
+            if ("args".equals(e.get("name")) && Json.object(e.get("value")).get("values") instanceof Map<?, ?> given) args = Json.object(given);
         }
         Map<String, Object> own = params.get(name);
         if (own == null || own.isEmpty()) return;
