@@ -187,10 +187,18 @@ class DeliverTest {
     void tooWideLineGoesWhole() throws IOException {
         Path src = write("main.xero", "func a() { send_message(\"1\") }\n");
         assertEquals(0, run("upload", src.toString(), "--game"), this::said);
-        write("main.xero", "func a() {\n" + "    send_message(\"1\")\n".repeat(44) + "}\n");
+        write("main.xero", "func a() {\n" + "    if value.name == \"a\" {\n        return\n    }\n".repeat(40) + "}\n");
         assertEquals(0, run("upload", src.toString(), "--game"), this::said);
         assertEquals(2, sentToGame.size(), sentToGame::toString);
         assertTrue(sentToGame.get(1).startsWith("replace "), sentToGame.get(1));
+    }
+
+    @Test
+    void wideLineIsCarriedBeforeUpload() throws IOException {
+        Path src = write("main.xero", "func a() {\n" + "    send_message(\"1\")\n".repeat(100) + "}\n");
+        assertEquals(0, run("upload", src.toString(), "--game"), this::said);
+        assertEquals(1, sentToGame.size(), sentToGame::toString);
+        assertTrue(sentToGame.get(0).contains("\"name\":\"a.1\""), sentToGame.get(0));
     }
 
     @Test
@@ -234,7 +242,7 @@ class DeliverTest {
         assertEquals(0, run("upload", src.toString(), "--add"), this::said);
         assertEquals(1, uploaded.size());
         if (System.getenv(Net.STORE_VARIABLE) == null) assertEquals(Net.DEFAULT, stores.get(0));
-        assertEquals(List.of("/module loadUrl " + stores.get(0).code() + "0123456789abcdef0123456789abcdef.json"), copied);
+        assertEquals(List.of("/module load-url " + stores.get(0).code() + "0123456789abcdef0123456789abcdef.json"), copied);
         assertTrue(said().contains("Задвоение не проверено: копии мира нет"), this::said);
         assertTrue(said().contains("в течение 60 с"), this::said);
         assertTrue(Files.isRegularFile(dir.resolve(".xero/world.json")));
@@ -247,7 +255,7 @@ class DeliverTest {
         assertEquals(1, stores.get(0).uploads().size());
         assertTrue(stores.get(0).uploads().get(0).startsWith("http://10.0.0.5:8791/mine/upload.php?key="));
         assertEquals("http://10.0.0.5:8791/mine/code/", stores.get(0).code());
-        assertEquals(List.of("/module loadUrl http://10.0.0.5:8791/mine/code/0123456789abcdef0123456789abcdef.json"), copied);
+        assertEquals(List.of("/module load-url http://10.0.0.5:8791/mine/code/0123456789abcdef0123456789abcdef.json"), copied);
         assertEquals(2, run("upload", src.toString(), "--add", "--duplicate", "--store", "ftp://x"), this::said);
         assertTrue(said().contains("адрес хранилища"), this::said);
         assertEquals(1, uploaded.size());
@@ -308,7 +316,7 @@ class DeliverTest {
         Path src = write("main.xero", "when world_start { }\n");
         assertEquals(0, run("upload", src.toString()), this::said);
         assertTrue(said().contains("Сверять не с чем"), this::said);
-        assertTrue(copied.get(0).startsWith("/module loadUrl force http://"), copied::toString);
+        assertTrue(copied.get(0).startsWith("/module load-url force http://"), copied::toString);
     }
 
     @Test
@@ -335,7 +343,7 @@ class DeliverTest {
         assertTrue(uploaded.isEmpty());
         assertEquals(0, run("upload", src.toString(), "--drop"), this::said);
         assertTrue(said().contains("сотрётся 1"), this::said);
-        assertTrue(copied.get(0).startsWith("/module loadUrl force http://"), copied::toString);
+        assertTrue(copied.get(0).startsWith("/module load-url force http://"), copied::toString);
     }
 
     @Test

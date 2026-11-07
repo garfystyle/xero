@@ -39,7 +39,7 @@ public final class Delivery {
 
     public record Clash(Line project, Line world, boolean doubled) {}
 
-    static final int TEMPLATE_WIDTH = 43;
+    static final int TEMPLATE_WIDTH = Wrap.WIDEST;
 
     static int width(Map<String, Object> block) {
         int width = 0;

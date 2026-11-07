@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.1-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.1%20бета-6366f1?style=flat-square"></a>
+  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.2-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.2%20бета-6366f1?style=flat-square"></a>
   <img alt="Minecraft" src="https://img.shields.io/badge/Minecraft-26.2-3de8f5?style=flat-square">
   <img alt="VS Code" src="https://img.shields.io/badge/VS%20Code-Java%20не%20нужна-6366f1?style=flat-square">
 </p>
@@ -65,12 +65,12 @@ when player_jump {
 
 **VS Code** — этого достаточно, Java не нужна.
 
-1. Скачай `xero-0.1.1-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.1-beta).
+1. Скачай `xero-0.1.2-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.2-beta).
 2. VS Code → Расширения → `···` → **Установить из VSIX…**
 
 **Терминал** — по желанию, нужна Java 25.
 
-1. Скачай `xero-0.1.1-beta.zip` оттуда же и распакуй.
+1. Скачай `xero-0.1.2-beta.zip` оттуда же и распакуй.
 2. Добавь папку `bin` в `PATH`.
 
 **Мод [XeroCode](https://github.com/garfystyle/xerocode)** — по желанию: код уходит в игру сам, без команды в чате.
@@ -561,8 +561,9 @@ when player_join { }
 | `@display_name(…)` `@display_description(…)` | имя и описание, каждая строка — с новой |
 | `@description(…)` | описание старого вида, по строке на клетку |
 | `@line(N)` | поставить строку на номер `N`, следующие пойдут за ней |
+| `@custom_data("текст")` | свой текст строки, до 256 символов; бывает и у `when` |
 
-Строки в `/dev` нумеруются с нуля, по 23 на этаж. Номера идут только вперёд.
+Строки в `/dev` нумеруются с нуля, по 35 на этаж. Номера идут только вперёд.
 
 ### Особые формы
 
@@ -579,10 +580,13 @@ when player_join { }
 
 ## Заливка в мир
 
+Сервер не принимает строку шире 67 блоков. Xero переносит лишнее в скрытые функции `<имя строки>.N` сам: `return`, `break`, `continue` и
+`else` работают как написаны. Если перенести нельзя, сборка предупредит.
+
 | Как | Что происходит |
 |:--|:--|
-| **Залить** | код мира заменяется проектом: `/module loadUrl force …` |
-| **Дописать** | код ложится в свободные строки: `/module loadUrl …`, ничего не стирается |
+| **Залить** | код мира заменяется проектом: `/module load-url force …` |
+| **Дописать** | код ложится в свободные строки: `/module load-url …`, ничего не стирается |
 | **Сразу в игру** | с модом XeroCode: без буфера обмена и команды в чате |
 
 Команду вставляют в чат в `/dev` в течение 60 секунд: ссылка одноразовая. Код уходит в хранилище Xero, а если оно не ответило — на `m.justmc.ru`, и тогда ссылка живёт около минуты.

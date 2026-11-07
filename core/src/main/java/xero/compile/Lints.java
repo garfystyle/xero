@@ -20,6 +20,7 @@ final class Lints {
     private final Set<String> read = new HashSet<>();
     private final List<String> texts = new ArrayList<>();
     private Set<String> inside;
+    private Set<String> written;
     private int textsFrom;
     private boolean opaque;
 
@@ -35,6 +36,10 @@ final class Lints {
         read.add(name);
         if (inside != null) inside.add(name);
         name(name);
+    }
+
+    void wrote(String name) {
+        if (written != null) written.add(name);
     }
 
     void name(String name) {
@@ -80,20 +85,27 @@ final class Lints {
 
     void enter() {
         inside = new HashSet<>();
+        written = new HashSet<>();
         textsFrom = texts.size();
     }
 
     void leave(Ast.Func f) {
         for (Ast.Param p : f.params()) {
-            if (inside.contains(p.name()) || mentioned(p.name(), textsFrom)) continue;
-            c.warning("параметр «" + p.name() + "» не используется", p.span());
+            if (failed() || inside.contains(p.name()) || mentioned(p.name(), textsFrom)) continue;
+            c.warning(written.contains(p.name()) ? "«" + p.name() + "» задана, но нигде не читается"
+                    : "параметр «" + p.name() + "» не используется", p.span());
         }
         inside = null;
+        written = null;
+    }
+
+    private boolean failed() {
+        for (Diagnostic d : c.diagnostics) if (d.error()) return true;
+        return false;
     }
 
     void report() {
-        if (opaque) return;
-        for (Diagnostic d : c.diagnostics) if (d.error()) return;
+        if (opaque || failed()) return;
         for (Map.Entry<String, Site> e : assigned.entrySet()) {
             String name = e.getKey();
             String scope = c.variables.get(name);

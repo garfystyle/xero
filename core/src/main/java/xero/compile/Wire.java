@@ -108,6 +108,14 @@ public final class Wire {
     static final int LABEL_BELOW = 9;
     static final String EMPTY_LIST = "{\"type\":\"array\",\"values\":[]}";
 
+    public static boolean noTarget(String group) {
+        return NO_TARGET.contains(group);
+    }
+
+    public static boolean mathFunction(String name) {
+        return Texts.mathFunction(name);
+    }
+
     static String compareOp(String id) {
         for (Map.Entry<String, String> e : COMPARE.entrySet())
             if (e.getValue().equals(id) && !e.getKey().equals("!=")) return e.getKey();

@@ -136,7 +136,7 @@
         "xero.storeUrl": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Своё хранилище кода для «Залить в мир» (как `store.py`): `http://хост:порт/путь/` — код уходит на `<адрес>upload.php`, ссылка для `/module loadUrl` — `<адрес>code/<id>.json`. Пусто — хранилище Xero. Если хранилище не ответило, код уходит на официальный `m.justmc.ru`."
+          "markdownDescription": "Своё хранилище кода для «Залить в мир» (как `store.py`): `http://хост:порт/путь/` — код уходит на `<адрес>upload.php`, ссылка для `/module load-url` — `<адрес>code/<id>.json`. Пусто — хранилище Xero. Если хранилище не ответило, код уходит на официальный `m.justmc.ru`."
         }
       }
     },

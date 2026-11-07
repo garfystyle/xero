@@ -37,8 +37,11 @@ final class Declarations {
     private record Assigned(String name, Expr value, Map<String, String> params, Map<String, String> paramKinds,
                             String returned, boolean declared) {}
 
+    static final String CUSTOM_DATA = "custom_data";
+    static final int CUSTOM_DATA_LIMIT = 256;
+
     private static final List<String> DECORATORS = List.of(
-            LINE, "hidden", "icon", "display_name", "display_description", "description", "values", "twin");
+            LINE, CUSTOM_DATA, "hidden", "icon", "display_name", "display_description", "description", "values", "twin");
 
     private final Context c;
     private final List<Assigned> assigned = new ArrayList<>();
@@ -93,6 +96,25 @@ final class Declarations {
             boolean numbers = Kinds.NUMBER.equals(Kinds.slot(before)) && Kinds.NUMBER.equals(Kinds.slot(kind));
             table.put(name, numbers ? Kinds.NUMBER : "?");
         }
+    }
+
+    Map<String, Object> customData(List<Ast.Decorator> marks, Map<String, Object> handler) {
+        Ast.Decorator found = null;
+        for (Ast.Decorator d : marks) {
+            if (!d.name().equals(CUSTOM_DATA)) continue;
+            if (found != null) c.error("пометка @custom_data повторяется", d.span());
+            else found = d;
+        }
+        if (found == null) return handler;
+        if (found.args().size() != 1 || found.args().get(0).name() != null
+                || !(found.args().get(0).value() instanceof Ast.Str s) || s.parts() != null) {
+            c.error("@custom_data(\"текст\") — обычная строка, без ${…}", found.span());
+            return handler;
+        }
+        if (s.text().length() > CUSTOM_DATA_LIMIT)
+            c.error("в custom_data " + s.text().length() + " символов, можно " + CUSTOM_DATA_LIMIT + ": сервер молча обрежет лишнее", found.span());
+        else handler.put(CUSTOM_DATA, s.text());
+        return handler;
     }
 
     int line(List<Ast.Decorator> marks, int next) {
@@ -633,7 +655,7 @@ final class Declarations {
                         ? Suggest.hint(d.name(), DECORATORS) : "есть: @" + String.join(", @", DECORATORS));
                 continue;
             }
-            if (d.name().equals(LINE) || d.name().equals("twin")) continue;
+            if (d.name().equals(LINE) || d.name().equals(CUSTOM_DATA) || d.name().equals("twin")) continue;
             if (marks.put(d.name(), d) != null) c.error("пометка @" + d.name() + " повторяется", d.span());
         }
         List<Object> declared = parameters(f);

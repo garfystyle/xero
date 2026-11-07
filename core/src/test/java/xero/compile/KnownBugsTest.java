@@ -338,6 +338,24 @@ class KnownBugsTest {
     }
 
     @Test
+    void writtenParameterIsNotCalledUnused() {
+        assertFalse(warned("func f(a) {\na = 1\n}", "не используется"));
+        assertTrue(warned("func f(a) {\na = 1\n}", "«a» задана, но нигде не читается"));
+        assertFalse(warned("func f(a) {\na += 1\n}", "не используется"));
+        assertTrue(warned("func f(a) {\na += 1\n}", "«a» задана, но нигде не читается"));
+        assertFalse(warned("func f(a) {\na = 1\nsend_message(\"${a}\")\n}", "читается"));
+        assertTrue(warned("func f(a) {\n}", "параметр «a» не используется"));
+    }
+
+    @Test
+    void brokenLineDoesNotCallParameterUnused() {
+        for (String text : List.of("func f(a) {\nif 1 in a {\nsend_message(\"да\")\n}\n}", "func f(a) {\ngive_items(item(stone, a))\n}")) {
+            assertFalse(errors(text).isEmpty(), text);
+            for (Diagnostic d : compile(text).diagnostics()) assertFalse(d.message().contains("не используется"), d::message);
+        }
+    }
+
+    @Test
     void dottedFunctionWithCategory() {
         List<Object> ops = ops("func player.x() {\nsend_message(\"a\")\n}\nwhen player_join {\nplayer.x()\n}");
         assertEquals("call_function", action(ops, 0));

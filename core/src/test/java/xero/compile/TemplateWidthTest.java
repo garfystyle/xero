@@ -38,9 +38,17 @@ class TemplateWidthTest {
         return new Delivery.Line(Delivery.Kind.EVENT, "player_jump", 3, copy);
     }
 
-    private static boolean replaced(String before, String after) {
-        Delivery.Line was = line(before);
-        return new Delivery.Plan(List.of(), List.of(line(after)), List.of(), List.of(), List.of(), List.of(was))
+    private static Delivery.Line wide(int width) {
+        Map<String, Object> copy = Json.object(Json.parse(Json.write(handler(plain(1)))));
+        List<Object> ops = Json.array(copy.get("operations"));
+        Object one = ops.get(0);
+        while (ops.size() < width) ops.add(one);
+        copy.put("position", new Json.Num("3"));
+        return new Delivery.Line(Delivery.Kind.EVENT, "player_jump", 3, copy);
+    }
+
+    private static boolean replaced(Delivery.Line was, Delivery.Line after) {
+        return new Delivery.Plan(List.of(), List.of(after), List.of(), List.of(), List.of(), List.of(was))
                 .lineByLine(List.of(was), 20);
     }
 
@@ -50,32 +58,32 @@ class TemplateWidthTest {
         String ifElse = "    if value.name == \"a\" {\n    } else {\n    }\n";
         String loop = "    repeat 2 {\n    }\n";
         String deep = "    if value.name == \"a\" {\n    if value.name == \"b\" {\n    if value.name == \"c\" {\n"
-                + plain(37) + "    }\n    }\n    }\n";
-        assertEquals(43, Delivery.width(handler(plain(43))));
-        assertEquals(43, Delivery.width(handler(repeated(5, emptyIf) + plain(33))));
-        assertEquals(43, Delivery.width(handler(repeated(5, loop) + plain(33))));
-        assertEquals(43, Delivery.width(handler(repeated(3, ifElse) + plain(31))));
-        assertEquals(43, Delivery.width(handler(deep)));
+                + plain(61) +"    }\n    }\n    }\n";
+        assertEquals(Wrap.WIDEST, Delivery.width(handler(plain(67))));
+        assertEquals(Wrap.WIDEST, Delivery.width(handler(repeated(5, emptyIf) + plain(57))));
+        assertEquals(Wrap.WIDEST, Delivery.width(handler(repeated(5, loop) + plain(57))));
+        assertEquals(Wrap.WIDEST, Delivery.width(handler(repeated(3, ifElse) + plain(55))));
+        assertEquals(Wrap.WIDEST, Delivery.width(handler(deep)));
     }
 
     @Test
     void widestLineGoesByLine() {
-        assertTrue(replaced(plain(1), plain(43)));
+        assertTrue(replaced(line(plain(1)), line(plain(Wrap.WIDEST))));
     }
 
     @Test
     void tooWideLineGoesWhole() {
-        assertFalse(replaced(plain(1), plain(44)));
+        assertFalse(replaced(line(plain(1)), wide(Wrap.WIDEST + 1)));
     }
 
     @Test
     void tooWideOldLineIsNotWiped() {
-        assertFalse(replaced(plain(44), plain(1)));
+        assertFalse(replaced(wide(Wrap.WIDEST + 1), line(plain(1))));
     }
 
     @Test
     void tooWideNewLineGoesWhole() {
-        Delivery.Plan plan = new Delivery.Plan(List.of(), List.of(), List.of(line(plain(44))), List.of(), List.of(), List.of());
+        Delivery.Plan plan = new Delivery.Plan(List.of(), List.of(), List.of(wide(Wrap.WIDEST + 1)), List.of(), List.of(), List.of());
         assertFalse(plan.lineByLine(List.of(), 20));
     }
 }

@@ -193,7 +193,11 @@ public final class Compiler {
                 next = position + 1;
                 try {
                     Map<String, Object> h = item instanceof Ast.Event e ? event(e, position) : function((Ast.Func) item, position);
-                    if (h != null) handlers.add(h);
+                    if (h != null) {
+                        handlers.add(h);
+                        if (!Wrap.carries(h, c.data)) c.warning("строка шире " + Wrap.WIDEST + " блоков, а перенести её нельзя: сервер её не примет",
+                                item instanceof Ast.Event e ? e.nameSpan() : ((Ast.Func) item).nameSpan(), "вынеси часть кода в функцию");
+                    }
                 } catch (Context.Stop ignored) {
                 }
             }
@@ -215,7 +219,8 @@ public final class Compiler {
 
     private Map<String, Object> event(Ast.Event e, int position) {
         for (Ast.Decorator d : e.decorators())
-            if (!d.name().equals(Declarations.LINE)) c.error("у события бывает только пометка @line", d.span());
+            if (!d.name().equals(Declarations.LINE) && !d.name().equals(Declarations.CUSTOM_DATA))
+                c.error("у события бывают только пометки @line и @custom_data", d.span());
         c.current = null;
         c.params = c.declarations.lineScoped(e);
         c.lineKinds = c.declarations.lineKinds(e);
@@ -240,7 +245,7 @@ public final class Compiler {
             c.error("нет события «" + e.name() + "»", e.nameSpan(), found.hint(), Hints.replace(e.nameSpan(), found.names()));
             return null;
         }
-        return obj("type", "event", "event", e.name(), "position", position, "operations", ops);
+        return c.declarations.customData(e.decorators(), obj("type", "event", "event", e.name(), "position", position, "operations", ops));
     }
 
     private Map<String, Object> function(Ast.Func f, int position) {
@@ -272,8 +277,8 @@ public final class Compiler {
         c.lineKinds = Map.of();
         c.declarations.leave();
         c.locals.leave();
-        return obj("type", f.process() ? "process" : "function", "name", f.name(), "values", values,
-                "position", position, "operations", ops);
+        return c.declarations.customData(f.decorators(), obj("type", f.process() ? "process" : "function", "name", f.name(), "values", values,
+                "position", position, "operations", ops));
     }
 
     List<Object> block(Ast.Block block) {
@@ -951,6 +956,7 @@ public final class Compiler {
         }
         if (scope.equals("local")) c.locals.use(v.name(), v.span(), Data.VARIABLE.equals(kind));
         if (v != c.writing) c.lints.read(v.name());
+        else c.lints.wrote(v.name());
         c.lints.name(v.name());
         return obj("type", "variable", "variable", v.name(), "scope", scope);
     }

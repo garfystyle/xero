@@ -265,7 +265,7 @@ async function run() {
       await vscode.window.showTextDocument(fine);
       await vscode.commands.executeCommand('xero.add');
       const clip = await vscode.env.clipboard.readText();
-      check('команда «Дописать в мир»: команда в буфере', /^\/module loadUrl http:\/\/2\.27\.249\.33:8791\/xerocode\/code\/[0-9a-f]{32}\.json$/.test(clip), clip);
+      check('команда «Дописать в мир»: команда в буфере', /^\/module load-url http:\/\/2\.27\.249\.33:8791\/xerocode\/code\/[0-9a-f]{32}\.json$/.test(clip), clip);
       report.push({ name: 'clipboard', ok: true, detail: clip });
     }
   } catch (e) {

@@ -1,6 +1,7 @@
 package xero.cli;
 
 import xero.compile.Compiler;
+import xero.compile.Wrap;
 import xero.data.Data;
 import xero.data.Names;
 import xero.json.Json;
@@ -99,7 +100,7 @@ final class Project {
             if (d.error()) errors++;
             else warnings++;
         }
-        return new Built(result.module(), result.diagnostics(), texts, name, files, errors, warnings, result.connected());
+        return new Built(Wrap.fitted(result.module(), data), result.diagnostics(), texts, name, files, errors, warnings, result.connected());
     }
 
     static List<Path> sources(Path dir) throws IOException {

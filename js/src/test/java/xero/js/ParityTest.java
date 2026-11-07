@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import xero.compile.Compiler;
 import xero.compile.Decompiler;
+import xero.compile.Wrap;
 import xero.data.Data;
 import xero.data.Names;
 import xero.format.Formatter;
@@ -139,7 +140,7 @@ class ParityTest {
             diagnostics.add((d.error() ? "error" : "warning") + ":" + d.message() + ":" + d.start() + ":" + d.end());
         Formatter.Result f = Formatter.format(text);
         Map<String, Object> e = new LinkedHashMap<>();
-        e.put("module", r.ok() ? Json.write(r.module()) : null);
+        e.put("module", r.ok() ? Json.write(Wrap.fitted(r.module(), data)) : null);
         e.put("diagnostics", diagnostics);
         e.put("format", f.ok() ? f.text() : null);
         e.put("hover", service.hover(text, probe));

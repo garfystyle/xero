@@ -6,6 +6,7 @@ import org.teavm.jso.JSObject;
 import xero.compile.Compiler;
 import xero.compile.Decompiler;
 import xero.compile.Delivery;
+import xero.compile.Wrap;
 import xero.format.Formatter;
 import xero.ide.Service;
 import xero.json.Json;
@@ -45,8 +46,9 @@ public final class Bridge {
             o.put("ok", r.ok());
             o.put("diagnostics", diagnostics(r.diagnostics()));
             if (r.ok()) {
-                o.put("module", Json.write(r.module()));
-                List<Object> handlers = Json.array(r.module().get("handlers"));
+                Map<String, Object> module = Wrap.fitted(r.module(), service().data());
+                o.put("module", Json.write(module));
+                List<Object> handlers = Json.array(module.get("handlers"));
                 o.put("lines", handlers.size());
                 o.put("blocks", blocks(handlers));
                 o.put("connected", r.connected());

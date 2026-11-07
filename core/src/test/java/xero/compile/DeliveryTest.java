@@ -96,7 +96,7 @@ class DeliveryTest {
         assertEquals(List.of("@line(номер): номер строки — целое число от 0"), errors("@line(x)\nwhen player_join { }"));
         assertEquals(List.of("@line(номер): номер строки — целое число от 0"), errors("@line(1.5)\nwhen player_join { }"));
         assertEquals(List.of("пометка @line повторяется"), errors("@line(2)\n@line(3)\nfunc a() { }"));
-        assertEquals(List.of("у события бывает только пометка @line"), errors("@hidden\nwhen player_join { }"));
+        assertEquals(List.of("у события бывают только пометки @line и @custom_data"), errors("@hidden\nwhen player_join { }"));
         assertTrue(errors("@line(3)\nfunc a() { }").isEmpty());
     }
 

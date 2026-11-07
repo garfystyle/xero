@@ -782,7 +782,7 @@ async function upload(add) {
     vscode.window.showErrorMessage('Xero: не залито — ' + e.message);
     return;
   }
-  const command = '/module loadUrl ' + (add ? '' : 'force ') + url;
+  const command = '/module load-url ' + (add ? '' : 'force ') + url;
   await vscode.env.clipboard.writeText(command);
   remember();
   await connected(false);

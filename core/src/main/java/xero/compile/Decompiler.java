@@ -31,6 +31,7 @@ public final class Decompiler {
     }
 
     private static final List<String> SCOPES = List.of("game", "save", "line", "local");
+    private static final String CANVAS_MARK = "xc:";
     private static final List<String> PARSINGS = List.of("legacy", "plain", "minimessage", "json");
     private static final List<String> DECLARATION_ORDER =
             List.of("parameters", "display_name", "display_description", "description", "icon", "is_hidden");
@@ -301,12 +302,12 @@ public final class Decompiler {
                 notes.add("строка пропущена: непонятное событие " + Json.write(h.get("event")));
                 return null;
             }
-            unknownFields(h, "type", "event", "position", "operations");
+            unknownFields(h, "type", "event", "position", "operations", Declarations.CUSTOM_DATA);
             if (!data.events().containsKey(event)) notes.add("события «" + event + "» нет в данных");
-            return "when " + event + " " + block(ops, 0) + "\n";
+            return customData(h) + "when " + event + " " + block(ops, 0) + "\n";
         }
         if (("function".equals(type) || "process".equals(type)) && h.get("name") instanceof String name) {
-            unknownFields(h, "type", "name", "values", "position", "operations");
+            unknownFields(h, "type", "name", "values", "position", "operations", Declarations.CUSTOM_DATA);
             if (name.indexOf('`') >= 0 || name.indexOf('\n') >= 0) {
                 notes.add("строка пропущена: имя «" + name + "» не записать");
                 return null;
@@ -315,12 +316,18 @@ public final class Decompiler {
             StringBuilder out = new StringBuilder();
             String params = declaration(values, out);
             if (!printedLines.add(type + ":" + name)) out.append("@twin\n");
+            out.append(customData(h));
             out.append("process".equals(type) ? "process " : "func ").append(functionName(name))
                     .append('(').append(params).append(") ").append(block(ops, 0)).append('\n');
             return out.toString();
         }
         notes.add("строка пропущена: " + Json.write(h).substring(0, Math.min(80, Json.write(h).length())));
         return null;
+    }
+
+    private static String customData(Map<String, Object> h) {
+        return h.get(Declarations.CUSTOM_DATA) instanceof String text && !text.startsWith(CANVAS_MARK)
+                ? "@custom_data(" + quote(text, null) + ")\n" : "";
     }
 
     private void unknownFields(Map<String, Object> h, String... known) {

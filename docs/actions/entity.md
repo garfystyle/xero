@@ -2124,6 +2124,7 @@ set_pathfinder_settings()
 
 | Аргумент | Вид | Описание |
 |:--|:--|:--|
+| `navigation_type` | маркер | Тип навигации:<br>`default` Стандартный<br>`ground` Наземный<br>`flying` Летающий<br>`water_bound` Водный<br>`amphibious` Амфибия<br>`spider` Паук<br>`climber` Лазающий |
 | `can_float` | маркер | Может плавать:<br>`true` Да<br>`false` Нет<br>`not_set` Не задано |
 | `can_open_door` | маркер | Может открывать двери:<br>`true` Да<br>`false` Нет<br>`not_set` Не задано |
 | `can_pass_door` | маркер | Может проходить сквозь двери:<br>`true` Да<br>`false` Нет<br>`not_set` Не задано |

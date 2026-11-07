@@ -156,7 +156,7 @@ final class Deliver {
             return 0;
         }
         String url = Net.link.upload(body, store);
-        String command = "/module loadUrl " + (replace ? "force " : "") + url;
+        String command = "/module load-url " + (replace ? "force " : "") + url;
         boolean copied = Clipboard.copy(command);
         OUT.println("Залито" + (url.startsWith(Net.OFFICIAL) ? " на запасной m.justmc.ru (хранилище не ответило)" : " в хранилище")
                 + ": строк " + project.size() + ", блоков " + Project.blocks(Json.array(module.get("handlers")))
