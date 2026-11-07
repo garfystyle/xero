@@ -20,6 +20,10 @@ import static xero.compile.Context.num;
 import static xero.compile.Context.obj;
 
 final class Values {
+    private static final String PARTICLE_FIELDS = "значения в particle(…) постоянные, переменное ставят set_particle_amount, set_particle_size и другие set_particle_*";
+
+    private String literalHint;
+
     private final Context c;
 
     Values(Context c) {
@@ -314,6 +318,15 @@ final class Values {
     }
 
     private Object particle(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
+        literalHint = PARTICLE_FIELDS;
+        try {
+            return particleValue(call, positional, named);
+        } finally {
+            literalHint = null;
+        }
+    }
+
+    private Object particleValue(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
         for (String field : List.copyOf(named.keySet()))
             if (!Wire.PARTICLE_FIELDS.contains(field)) {
                 c.warning("у particle() нет «" + field + "» — поле не уйдёт", named.get(field).span(),
@@ -425,6 +438,11 @@ final class Values {
         List<String> bare = new ArrayList<>();
         for (String x : ids) bare.add(x.startsWith("minecraft:") ? x.substring("minecraft:".length()) : x);
         String name = bare(id);
+        if (c.known(name)) {
+            c.error("«" + name + "» — переменная, а здесь нужен постоянный id", at,
+                    "передай её без обёртки: сервер примет id текстом, а у предмета тип меняет set_item_type");
+            return;
+        }
         String best = Suggest.best(name, bare);
         c.error("нет " + what + " «" + name + "» в Minecraft 26.2", at, Suggest.meant(best),
                 Hints.replace(at, best == null ? null : dotted(best)));
@@ -450,7 +468,7 @@ final class Values {
     private double literal(Expr e) {
         Double folded = c.formula.fold(e);
         if (folded != null) return c.finite(folded, e.span());
-        throw c.stop("здесь нужно число, а не выражение или переменная", e.span());
+        throw c.stop("здесь нужно число, а не выражение или переменная", e.span(), literalHint);
     }
 
     private String id(Expr e) {

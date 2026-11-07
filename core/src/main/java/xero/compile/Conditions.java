@@ -67,7 +67,7 @@ final class Conditions {
         if (fixed != null) throw c.stop("условие всегда ложно — повторение не выполнится ни разу", condition.span());
         Tree tree = tree(condition, false);
         if (tree instanceof Leaf leaf) {
-            Context.Captured<Cond> captured = c.capture(() -> leafCond(leaf));
+            Context.Captured<Cond> captured = ordered(condition, () -> leafCond(leaf));
             if (captured.pre().isEmpty()) {
                 c.loops++;
                 List<Object> ops = c.compiler.block(body);
@@ -89,7 +89,9 @@ final class Conditions {
         Map<String, Object> flag = flagVariable(c.flag());
         List<Object> inner = new ArrayList<>();
         inner.add(setVar(flag, 0));
-        inner.addAll(compute(tree, flag));
+        Context.Captured<List<Object>> computed = ordered(condition, () -> compute(tree, flag));
+        inner.addAll(computed.pre());
+        inner.addAll(computed.value());
         Map<String, Object> stop = obj("action", "if_variable_equals",
                 "values", isOne(flag), "is_inverted", true,
                 "operations", new ArrayList<>(List.of(obj("action", "control_stop_repeat", "values", new ArrayList<>()))));
@@ -98,6 +100,19 @@ final class Conditions {
         inner.addAll(c.compiler.block(body));
         c.loops--;
         return obj("action", "repeat_forever", "values", new ArrayList<>(), "operations", inner);
+    }
+
+    private <T> Context.Captured<T> ordered(Expr condition, java.util.function.Supplier<T> work) {
+        Map<Ast.Var, Ast.Var> saved = c.snapshots;
+        c.snapshots = new java.util.IdentityHashMap<>();
+        try {
+            return c.capture(() -> {
+                c.order.plan(condition);
+                return work.get();
+            });
+        } finally {
+            c.snapshots = saved;
+        }
     }
 
     Tree tree(Expr e, boolean negated) {

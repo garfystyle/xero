@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.2-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.2%20бета-6366f1?style=flat-square"></a>
+  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.3-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.3%20бета-6366f1?style=flat-square"></a>
   <img alt="Minecraft" src="https://img.shields.io/badge/Minecraft-26.2-3de8f5?style=flat-square">
   <img alt="VS Code" src="https://img.shields.io/badge/VS%20Code-Java%20не%20нужна-6366f1?style=flat-square">
 </p>
@@ -65,12 +65,12 @@ when player_jump {
 
 **VS Code** — этого достаточно, Java не нужна.
 
-1. Скачай `xero-0.1.2-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.2-beta).
+1. Скачай `xero-0.1.3-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.3-beta).
 2. VS Code → Расширения → `···` → **Установить из VSIX…**
 
 **Терминал** — по желанию, нужна Java 25.
 
-1. Скачай `xero-0.1.2-beta.zip` оттуда же и распакуй.
+1. Скачай `xero-0.1.3-beta.zip` оттуда же и распакуй.
 2. Добавь папку `bin` в `PATH`.
 
 **Мод [XeroCode](https://github.com/garfystyle/xerocode)** — по желанию: код уходит в игру сам, без команды в чате.

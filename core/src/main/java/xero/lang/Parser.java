@@ -38,6 +38,7 @@ public final class Parser {
     private final List<Diagnostic> diagnostics;
     private int pos;
     private int nest;
+    private Stmt followUp;
 
     private Parser(String source, List<Token> tokens, List<Diagnostic> diagnostics) {
         this.source = source;
@@ -191,6 +192,10 @@ public final class Parser {
         while (!peek().is("}") && peek().kind() != Token.Kind.EOF) {
             try {
                 stmts.add(statement());
+                if (followUp != null) {
+                    stmts.add(followUp);
+                    followUp = null;
+                }
                 endOfStatement();
             } catch (Failure f) {
                 skipToStatement();
@@ -307,7 +312,13 @@ public final class Parser {
                         span(t).to(value.span()));
             }
             String shape = shape();
-            return new Ast.Declare(t.text(), name.text(), shape, span(t).to(previousSpan()));
+            Ast.Declare declared = new Ast.Declare(t.text(), name.text(), shape, span(t).to(previousSpan()));
+            if (shape != null && peek().is("=") && peek().kind() == Token.Kind.SYMBOL) {
+                Token op = next();
+                Expr value = expr();
+                followUp = new Ast.Assign(t.text(), name.text(), span(name), op.text(), value, span(t).to(value.span()));
+            }
+            return declared;
         }
         if ((t.kind() == Token.Kind.IDENT || t.kind() == Token.Kind.NAME)
                 && peek(1).kind() == Token.Kind.SYMBOL && ASSIGN.contains(peek(1).text())) {

@@ -7,6 +7,7 @@ import xero.lang.Ast;
 import xero.lang.Ast.Arg;
 import xero.lang.Ast.Expr;
 import xero.lang.Ast.Span;
+import xero.lang.Diagnostic;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -35,7 +36,9 @@ final class Declarations {
             "any, text, number, location, vector, block, item, sound, particle, potion, array, map, variable, enum(…)";
 
     private record Assigned(String name, Expr value, Map<String, String> params, Map<String, String> paramKinds,
-                            String returned, boolean declared) {}
+                            String returned, boolean declared, String pinned) {}
+
+    private record Spot(String file, Span at) {}
 
     static final String CUSTOM_DATA = "custom_data";
     static final int CUSTOM_DATA_LIMIT = 256;
@@ -47,6 +50,8 @@ final class Declarations {
     private final List<Assigned> assigned = new ArrayList<>();
     private final List<Assigned> results = new ArrayList<>();
     private final List<Assigned> inside = new ArrayList<>();
+    private final List<Assigned> filled = new ArrayList<>();
+    private final Map<String, Spot> writtenAt = new LinkedHashMap<>();
     private final Map<String, String> stated = new LinkedHashMap<>();
     private final Map<Ast.Item, Map<String, String>> lineScoped = new java.util.IdentityHashMap<>();
     private final Map<Map<String, String>, Map<String, String>> lineKinds = new java.util.IdentityHashMap<>();
@@ -54,6 +59,7 @@ final class Declarations {
     private final Map<Map<String, String>, Map<String, String>> ownLikely = new java.util.IdentityHashMap<>();
     private final Map<Map<String, String>, Map<String, String>> ownShapes = new java.util.IdentityHashMap<>();
     private final Map<Map<String, String>, Map<String, String>> ownSlots = new java.util.IdentityHashMap<>();
+    private final Map<Map<String, String>, Map<String, String>> ownElements = new java.util.IdentityHashMap<>();
     private Map<String, String> own;
     private Map<String, String> ownKinds = Map.of();
     private List<String> settled = new ArrayList<>();
@@ -80,6 +86,7 @@ final class Declarations {
         c.ownLikely = Map.of();
         c.ownShapes = Map.of();
         c.ownSlots = Map.of();
+        c.ownElements = Map.of();
     }
 
     private void enter(Map<String, String> key) {
@@ -87,6 +94,7 @@ final class Declarations {
         c.ownLikely = ownLikely.getOrDefault(key, Map.of());
         c.ownShapes = ownShapes.getOrDefault(key, Map.of());
         c.ownSlots = ownSlots.getOrDefault(key, Map.of());
+        c.ownElements = ownElements.getOrDefault(key, Map.of());
     }
 
     private static void merge(Map<String, String> table, String name, String kind) {
@@ -230,6 +238,7 @@ final class Declarations {
             Map<String, String> next = new LinkedHashMap<>();
             Map<Map<String, String>, Map<String, String>> nextOwn = new java.util.IdentityHashMap<>();
             for (Assigned a : assigned) {
+                if (elsewhere(a)) continue;
                 c.params = a.params();
                 c.paramKinds = a.paramKinds();
                 enter(a.params());
@@ -278,8 +287,55 @@ final class Declarations {
         for (Map<String, String> table : ownLikely.values()) table.values().removeIf(k -> !Kinds.spatial(k));
     }
 
+    private boolean elsewhere(Assigned a) {
+        return a.pinned() != null && !a.pinned().equals(c.variables.get(a.name()));
+    }
+
+    private void elements() {
+        for (int round = 0; round < 2; round++) {
+            Map<String, String> next = new LinkedHashMap<>();
+            Map<Map<String, String>, Map<String, String>> nextOwn = new java.util.IdentityHashMap<>();
+            for (List<Assigned> group : List.of(assigned, inside, filled)) {
+                for (Assigned a : group) {
+                    if (a.value() == null) continue;
+                    c.params = a.params();
+                    c.paramKinds = a.paramKinds();
+                    enter(a.params());
+                    String element = c.compiler.elementOf(a.name(), a.value());
+                    if (element == null) continue;
+                    merge(next, a.name(), element);
+                    merge(nextOwn.computeIfAbsent(a.params(), k -> new LinkedHashMap<>()), a.name(), element);
+                }
+            }
+            c.params = Map.of();
+            c.paramKinds = Map.of();
+            leave();
+            c.elements.clear();
+            c.elements.putAll(next);
+            ownElements.clear();
+            ownElements.putAll(nextOwn);
+        }
+    }
+
+    private void looseNames() {
+        Set<String> shapes = new LinkedHashSet<>();
+        for (Map.Entry<String, String> e : c.variables.entrySet())
+            if (e.getKey().indexOf('%') >= 0 && !"local".equals(e.getValue())) shapes.add(nameShape(e.getKey()));
+        for (Map.Entry<String, Spot> e : writtenAt.entrySet()) {
+            String shape = nameShape(e.getKey());
+            if (shape.replace("%var()", "").isBlank() || !"local".equals(c.variables.get(e.getKey())) || !shapes.contains(shape)) continue;
+            Span at = e.getValue().at();
+            c.diagnostics.add(new Diagnostic(false, "«" + e.getKey() + "» — локальная: объявлено похожее имя с другим плейсхолдером", at.start(), at.end(),
+                    "объявление сравнивается по тексту имени, объяви и это написание: game `" + e.getKey() + "`").in(e.getValue().file()));
+        }
+    }
+
+    private static String nameShape(String name) {
+        return Wire.VARIABLE_PLACEHOLDER.matcher(name).replaceAll("%var()");
+    }
+
     private void note(Map<String, String> next, Assigned a) {
-        if (a.declared()) return;
+        if (a.declared() || elsewhere(a)) return;
         c.params = a.params();
         c.paramKinds = a.paramKinds();
         c.lineKinds = lineKinds.getOrDefault(a.params(), Map.of());
@@ -296,7 +352,31 @@ final class Declarations {
     }
 
     private void assign(String name, Expr value, String returned, boolean declared) {
-        (own.containsKey(name) ? inside : assigned).add(new Assigned(name, value, own, ownKinds, returned, declared));
+        (own.containsKey(name) ? inside : assigned).add(new Assigned(name, value, own, ownKinds, returned, declared, null));
+    }
+
+    private void assignPinned(Ast.Assign a) {
+        assigned.add(new Assigned(a.name(), null, own, ownKinds, null, false, a.scope()));
+        if (a.op().equals("=")) assign(a.scope() + "." + a.name(), reads(a.value(), a.name()) ? null : a.value());
+    }
+
+    private void unknownPinned(Expr written) {
+        if (written instanceof Ast.Var v && v.scope() != null) assign(v.scope() + "." + v.name(), null);
+        if (written instanceof Ast.ListLit l) l.items().forEach(this::unknownPinned);
+    }
+
+    private static boolean reads(Expr e, String name) {
+        return switch (e) {
+            case Ast.Var v -> v.name().equals(name);
+            case Ast.Call call -> call.args().stream().anyMatch(a -> reads(a.value(), name));
+            case Ast.ListLit l -> l.items().stream().anyMatch(x -> reads(x, name));
+            case Ast.Binary b -> reads(b.left(), name) || reads(b.right(), name);
+            case Ast.Unary u -> reads(u.operand(), name);
+            case Ast.Index i -> reads(i.target(), name) || reads(i.index(), name);
+            case Ast.Targeted t -> reads(t.inner(), name);
+            case Ast.Ternary t -> reads(t.condition(), name) || reads(t.then(), name) || reads(t.otherwise(), name);
+            case null, default -> false;
+        };
     }
 
     private void state(String name, String shape) {
@@ -470,7 +550,9 @@ final class Declarations {
         c.reserved.addAll(c.pinned);
         for (String f : c.returning) c.variables.putIfAbsent(Wire.RESULT + f, "local");
         kinds();
+        elements();
         likely();
+        looseNames();
     }
 
     void shape(String name, String kind) {
@@ -530,8 +612,9 @@ final class Declarations {
                     if (a.op().equals("=") && a.value() instanceof Ast.ListLit) shape(a.name(), "list");
                     if (a.op().equals("=") && a.value() instanceof Ast.MapLit) shape(a.name(), "map");
                     if (a.op().equals("=") && created(a.value()) != null) shape(a.name(), created(a.value()));
-                    if (a.pinned()) assign(a.name(), null);
+                    if (a.pinned()) assignPinned(a);
                     else if (a.op().equals("=")) assign(a.name(), a.value());
+                    if (!a.pinned() && a.name().indexOf('%') >= 0) writtenAt.putIfAbsent(a.name(), new Spot(c.diagnostics.file, a.nameSpan()));
                     if (a.op().equals("=")) slots(a.value(), true);
                     if (a.op().equals("=") && !a.pinned() && !own.containsKey(a.name())) c.lints.assigned(a.name(), a.nameSpan());
                 }
@@ -545,6 +628,7 @@ final class Declarations {
                         if (!c.pinned.contains(v.name())) plain.add(v.name());
                         if (a.target().index() instanceof Ast.Str) shape(v.name(), "map");
                         if (a.target().index() instanceof Ast.Num) shape(v.name(), "list");
+                        filled.add(new Assigned(v.name(), new Ast.ListLit(List.of(a.value()), a.span()), own, ownKinds, null, false, null));
                     }
                 }
                 case Ast.MultiAssign m -> {
@@ -561,11 +645,12 @@ final class Declarations {
                 case Ast.Run r -> {
                     writtenVariables(r.call(), plain);
                     slots(r.call(), false);
+                    changedInPlace(r.call());
                     collect(r.body(), plain);
                 }
                 case Ast.Jump j -> {
                     if (j.value() != null && function != null)
-                        results.add(new Assigned(Wire.RESULT + function, j.value(), own, ownKinds, null, false));
+                        results.add(new Assigned(Wire.RESULT + function, j.value(), own, ownKinds, null, false, null));
                 }
                 case Ast.Repeat r -> collect(r.body(), plain);
                 case Ast.ForRange f -> {
@@ -577,7 +662,7 @@ final class Declarations {
                     if (f.first() != null) plain.add(f.first());
                     plain.add(f.second());
                     if (f.first() != null) assign(f.first(), null);
-                    assign(f.second(), null);
+                    assign(f.second(), new Ast.Index(f.source(), new Ast.Num("0", f.secondSpan()), f.secondSpan()));
                     if (f.source() instanceof Ast.Var v) shape(v.name(), f.map() ? "map" : "list");
                     collect(f.body(), plain);
                 }
@@ -603,11 +688,23 @@ final class Declarations {
             } else {
                 target = e.action().arg(a.name().toLowerCase(Locale.ROOT));
             }
+            if (target != null && Data.VARIABLE.equals(target.kind())) unknownPinned(a.value());
             if (target != null && Data.VARIABLE.equals(target.kind()) && a.value() instanceof Ast.Var v) {
                 if (v.scope() == null) plain.add(v.name());
                 assign(v.name(), null, c.data.returned(e.action(), target), false);
             }
         }
+    }
+
+    private void changedInPlace(Expr run) {
+        Expr inner = run instanceof Ast.Targeted t ? t.inner() : run;
+        if (inner instanceof Ast.Call call && !c.userCall(call) && !call.args().isEmpty()
+                && call.args().get(0).value() instanceof Ast.Var v && c.compiler.writesInPlace(call))
+            filled.add(new Assigned(v.name(), call, own, ownKinds, null, false, null));
+    }
+
+    boolean emptyCollection(Expr value) {
+        return value instanceof Ast.Call call && call.args().isEmpty() && created(value) != null;
     }
 
     private String created(Expr value) {

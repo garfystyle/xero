@@ -174,6 +174,10 @@ final class Order {
         for (Expr root : roots) visit(root, reads);
     }
 
+    void plan(Expr condition) {
+        visit(condition, new ArrayList<>());
+    }
+
     private void visit(Expr e, List<Ast.Var> reads) {
         switch (e) {
             case Ast.Var v -> {

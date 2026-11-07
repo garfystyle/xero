@@ -184,6 +184,18 @@ class DeliveryTest {
     }
 
     @Test
+    void movedLineIsNotEdit() {
+        String both = "when world_start {\n}\nwhen player_join {\nsend_message(\"a\")\n}";
+        String swapped = "when player_join {\nsend_message(\"a\")\n}\nwhen world_start {\n}";
+        String edited = "when world_start {\n}\nwhen player_join {\nsend_message(\"b\")\n}";
+        List<Delivery.Line> world = Delivery.lines(module(both));
+        Delivery.Plan plan = Delivery.plan(DATA, world, Delivery.lines(module(swapped)));
+        assertEquals(2, plan.changed().size());
+        assertEquals(2, plan.moved().size());
+        assertEquals(List.of(), Delivery.plan(DATA, world, Delivery.lines(module(edited))).moved());
+    }
+
+    @Test
     void oddHandlersAreKeptAsLines() {
         Map<String, Object> world = Json.object(Json.parse("""
                 {"handlers":[{"type":"mystery","position":2},{"type":"event","event":"world_start","position":0,"operations":[]}]}"""));

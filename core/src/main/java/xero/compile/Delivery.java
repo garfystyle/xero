@@ -51,7 +51,11 @@ public final class Delivery {
         return width;
     }
 
-    public record Plan(List<Line> same, List<Line> changed, List<Line> added, List<Line> missing, List<Line> kept, List<Line> was) {
+    public record Plan(List<Line> same, List<Line> changed, List<Line> added, List<Line> missing, List<Line> kept, List<Line> was, List<Line> moved) {
+        public Plan(List<Line> same, List<Line> changed, List<Line> added, List<Line> missing, List<Line> kept, List<Line> was) {
+            this(same, changed, added, missing, kept, was, List.of());
+        }
+
         public boolean lineByLine(List<Line> world, int limit) {
             if (!missing.isEmpty() || changed.size() + added.size() > limit) return false;
             for (int i = 0; i < changed.size(); i++) {
@@ -145,7 +149,7 @@ public final class Delivery {
 
     public static Plan plan(Data data, List<Line> world, List<Line> project) {
         List<Line> same = new ArrayList<>(), changed = new ArrayList<>(), added = new ArrayList<>(), missing = new ArrayList<>();
-        List<Line> kept = new ArrayList<>(), was = new ArrayList<>();
+        List<Line> kept = new ArrayList<>(), was = new ArrayList<>(), moved = new ArrayList<>();
         Map<String, List<Line>> left = new LinkedHashMap<>();
         for (Line w : world) left.computeIfAbsent(w.key(), k -> new ArrayList<>()).add(w);
         List<Line> rest = new ArrayList<>();
@@ -174,10 +178,11 @@ public final class Delivery {
             candidates.remove(pick);
             changed.add(p);
             was.add(pick);
+            if (equal(data, pick, p)) moved.add(p);
         }
         for (List<Line> l : left.values()) missing.addAll(l);
         missing.sort(Comparator.comparingInt(Line::position));
-        return new Plan(same, changed, added, missing, kept, was);
+        return new Plan(same, changed, added, missing, kept, was, moved);
     }
 
     private static boolean equal(Data data, Line a, Line b) {

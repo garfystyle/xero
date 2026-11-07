@@ -46,6 +46,21 @@ final class Lints {
         if (name.indexOf('%') >= 0) text(name);
     }
 
+    void parameterRead(String text, Span at, boolean quoteName) {
+        if (text == null || text.indexOf('%') < 0 || c.params.isEmpty()) return;
+        java.util.regex.Matcher m = Wire.PARAMETER_READ.matcher(text);
+        while (m.find()) {
+            String name = m.group(1);
+            if (!c.params.containsKey(name)) continue;
+            String outer = c.variables.get(name);
+            if (m.group().startsWith("%var(") && ("game".equals(outer) || "save".equals(outer))) continue;
+            String fixed = text.replace(m.group(), "%var_line(" + name + ")");
+            c.warning(m.group() + " читает не параметр, а одноимённую переменную: без неё здесь 0, параметр доступен через %var_line(" + name + ")", at, null,
+                    quoteName ? Hints.replace(at, "`" + fixed + "`") : null);
+            return;
+        }
+    }
+
     boolean pauses(Ast.Block block) {
         if (block == null) return false;
         for (Ast.Stmt s : block.stmts()) if (pauses(s)) return true;

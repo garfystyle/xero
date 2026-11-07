@@ -278,7 +278,10 @@ public final class Bridge {
             Delivery.Plan p = Delivery.plan(service().data(), world, mine);
             Map<String, Object> o = new LinkedHashMap<>();
             o.put("same", p.same().size());
-            o.put("changed", titles(p.changed()));
+            List<Delivery.Line> edited = new ArrayList<>(p.changed());
+            edited.removeAll(p.moved());
+            o.put("changed", titles(edited));
+            o.put("moved", p.moved().size());
             o.put("added", titles(p.added()));
             o.put("missing", titles(p.missing()));
             o.put("module", Json.write(p.module(mine)));

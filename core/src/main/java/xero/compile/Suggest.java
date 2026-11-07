@@ -12,6 +12,7 @@ final class Suggest {
             String lc = c.toLowerCase(Locale.ROOT);
             int d = distance(w, lc);
             if (lc.contains(w) && w.length() >= 4) d = Math.min(d, 1 + (lc.length() - w.length()) / 4);
+            if (d > 1 && otherWord(w, lc)) continue;
             if (d < bestScore || (d == bestScore && best != null && c.length() < best.length())) {
                 bestScore = d;
                 best = c;
@@ -20,6 +21,17 @@ final class Suggest {
         if (best == null) return null;
         int limit = w.length() <= 3 ? 1 : w.length() <= 6 ? 2 : 3;
         return bestScore <= limit ? best : null;
+    }
+
+    private static boolean otherWord(String word, String candidate) {
+        String[] a = word.split("_");
+        String[] b = candidate.split("_");
+        if (a.length != b.length) return false;
+        for (int i = 0; i < a.length; i++) {
+            int shortest = Math.min(a[i].length(), b[i].length());
+            if (distance(a[i], b[i]) > Math.max(1, shortest / 2)) return true;
+        }
+        return false;
     }
 
     static String hint(String word, Collection<String> candidates) {

@@ -56,6 +56,8 @@ final class Context {
     final Map<String, Ast.Func> processes = new LinkedHashMap<>();
     final Set<String> returning = new LinkedHashSet<>();
     final Map<String, String> shapes = new LinkedHashMap<>();
+    final Map<String, String> elements = new LinkedHashMap<>();
+    Map<String, String> ownElements = Map.of();
     Map<String, String> params = Map.of();
     Map<String, String> paramKinds = Map.of();
     Map<String, String> lineKinds = Map.of();
@@ -187,15 +189,33 @@ final class Context {
         return own(ownShapes, name) ? ownShapes.get(name) : shapes.get(name);
     }
 
+    private static String settled(String kind) {
+        return "?".equals(kind) ? null : kind;
+    }
+
+    private static String pinned(Map<String, String> own, Map<String, String> all, Ast.Var v) {
+        String key = v.scope() + "." + v.name();
+        return settled(own.containsKey(key) ? own.get(key) : all.get(key));
+    }
+
+    String element(Ast.Var v) {
+        if (v.scope() != null) return pinned(ownElements, elements, v);
+        if (params.containsKey(v.name())) return null;
+        return settled(own(ownElements, v.name()) ? ownElements.get(v.name()) : elements.get(v.name()));
+    }
+
     String kind(Ast.Var v) {
-        if (v.scope() != null) return null;
+        if (v.scope() != null) return pinned(ownKinds, kinds, v);
         if (params.containsKey(v.name())) return paramKinds.get(v.name());
         String k = own(ownKinds, v.name()) ? ownKinds.get(v.name()) : kinds.get(v.name());
         return "?".equals(k) ? null : k;
     }
 
     String likely(Ast.Var v) {
-        if (v.scope() != null) return null;
+        if (v.scope() != null) {
+            String soft = pinned(ownLikely, likely, v);
+            return soft != null ? soft : kind(v);
+        }
         if (params.containsKey(v.name())) {
             String own = paramKinds.get(v.name());
             if (own == null) own = lineKinds.get(v.name());
@@ -296,6 +316,8 @@ final class Context {
 
     String gameValue(String id, Span at) {
         if (!data.gameValues().containsKey(id)) {
+            if (Wire.COORDINATES.contains(id))
+                throw stop("нет игрового значения «" + id + "»", at, "часть места берут из него: get_coordinate(value.location, type: " + id + ")");
             String best = Suggest.best(id, data.gameValues().keySet());
             throw stop("нет игрового значения «" + id + "»", at, Suggest.meant(best),
                     Hints.replace(at, best == null ? null : "value." + best));

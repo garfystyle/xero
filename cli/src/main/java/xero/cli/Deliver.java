@@ -235,7 +235,8 @@ final class Deliver {
         }
         Delivery.Plan plan = Delivery.plan(Data.load(), lines, project);
         OUT.println("Сверено: " + where + ".");
-        OUT.println("Без изменений " + plan.same().size() + ", изменено " + plan.changed().size() + ", новых " + plan.added().size()
+        OUT.println("Без изменений " + plan.same().size() + ", изменено " + (plan.changed().size() - plan.moved().size())
+                + (plan.moved().isEmpty() ? "" : ", сдвинуто " + plan.moved().size()) + ", новых " + plan.added().size()
                 + ", сотрётся " + plan.missing().size() + ".");
         show("изменено", plan.changed());
         show("новые", plan.added());

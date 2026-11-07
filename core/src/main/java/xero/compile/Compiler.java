@@ -727,6 +727,7 @@ public final class Compiler {
                         : likely ? returned(call) : null;
             };
             case Ast.Call call when likely -> returned(call);
+            case Ast.Index i when likely -> elementKind(i.target());
             case Ast.Unary u when u.op().equals("not") -> Kinds.BOOL;
             case Ast.Unary u -> Kinds.VECTOR.equals(kindOf(u.operand(), likely)) ? null : Kinds.NUMBER;
             case Ast.Binary b when Formula.ARITHMETIC.contains(b.op()) -> {
@@ -744,6 +745,58 @@ public final class Compiler {
             }
             default -> null;
         };
+    }
+
+    private String elementKind(Expr target) {
+        if (!(target instanceof Ast.Var v)) return null;
+        Expr fixed = c.constant(v);
+        if (fixed == null) return c.element(v);
+        String element = elementOf(v.name(), fixed);
+        return "?".equals(element) ? null : element;
+    }
+
+    String elementOf(String name, Expr value) {
+        return switch (value) {
+            case Ast.ListLit l -> commonKind(l.items());
+            case Ast.MapLit m -> commonKind(m.values());
+            case Ast.Var v when c.constant(v) != null -> elementOf(name, c.constant(v));
+            case Ast.Var v -> {
+                String copied = c.element(v);
+                yield copied == null ? "?" : copied;
+            }
+            case Ast.Call call when c.declarations.emptyCollection(call) -> null;
+            case Ast.Call call when !c.userCall(call) -> elementAfter(name, call);
+            default -> "?";
+        };
+    }
+
+    boolean writesInPlace(Ast.Call call) {
+        Names.Entry e = c.names.resolve(Names.Space.ACTION, call.shown());
+        return e != null && e.action().result() != null;
+    }
+
+    private String elementAfter(String name, Ast.Call call) {
+        Names.Entry e = c.names.resolve(Names.Space.ACTION, call.shown());
+        if (e == null) return "?";
+        String id = e.action().id();
+        if (Wire.KEEPS_ELEMENTS.contains(id)) return null;
+        List<Expr> added = new ArrayList<>();
+        for (Arg a : call.args())
+            if (!(a.value() instanceof Ast.Var v && v.name().equals(name))) added.add(a.value());
+        if (id.equals("set_variable_append_value")) return commonKind(added);
+        if (Wire.LAST_IS_ELEMENT.contains(id) && !added.isEmpty()) return commonKind(List.of(added.get(added.size() - 1)));
+        return "?";
+    }
+
+    private String commonKind(List<Expr> items) {
+        String common = null;
+        for (Expr item : items) {
+            if (item instanceof Ast.Blank) continue;
+            String kind = likelyKind(item);
+            if (!Kinds.spatial(kind) || common != null && !common.equals(kind)) return "?";
+            common = kind;
+        }
+        return common;
     }
 
     private record Op(Data.Action action, List<Arg> args) {}
@@ -858,6 +911,9 @@ public final class Compiler {
                     best != null ? Suggest.meant(best) : "есть: " + String.join(", ", s.options().keySet()),
                     Hints.replace(e.span(), best == null ? null : Keywords.plainName(best) ? best : Decompiler.quote(best, null)));
         }
+        if (s.options().containsKey("generic_" + option) && Wire.ATTRIBUTE_SETTING.equals(s.id()))
+            c.warning("«" + option + "» собирается, но сервер остановит строку: Enum " + option.toUpperCase(Locale.ROOT) + " value not found", e.span(),
+                    "пиши с приставкой", Hints.replace(e.span(), "generic_" + option));
         return enumValue(option.toUpperCase(Locale.ROOT));
     }
 
@@ -958,6 +1014,7 @@ public final class Compiler {
         if (v != c.writing) c.lints.read(v.name());
         else c.lints.wrote(v.name());
         c.lints.name(v.name());
+        c.lints.parameterRead(v.name(), v.span(), true);
         return obj("type", "variable", "variable", v.name(), "scope", scope);
     }
 
@@ -1206,6 +1263,8 @@ public final class Compiler {
         if (i.target() instanceof Ast.Var v) {
             String s = c.shape(v.name());
             if ("list".equals(s) || "map".equals(s)) return s;
+            if (c.constant(v) != null) throw c.stop("«" + v.name() + "» — постоянная, в ней нет значений по индексу", i.span(),
+                    "индекс берут у const со списком или словарём: const " + v.name() + " = [1, 2]");
         }
         Expr idx = i.index();
         if (idx instanceof Ast.Num || (idx instanceof Ast.Unary u && u.op().equals("-"))
@@ -1215,8 +1274,16 @@ public final class Compiler {
         if (Kinds.TEXT.equals(key)) return "map";
         if (Kinds.NUMBER.equals(key)) return "list";
         String name = i.target() instanceof Ast.Var v ? v.name() : "это значение";
-        throw c.stop("не понятно, «" + name + "» — список или словарь", i.span(),
-                "скажи это при объявлении: save " + name + ": map или save " + name + ": list");
+        throw c.stop("не понятно, «" + name + "» — список или словарь", i.span(), declareShape(i.target(), name));
+    }
+
+    private String declareShape(Expr target, String name) {
+        if (target instanceof Ast.Var v && c.params.containsKey(v.name()))
+            return "скажи это в параметре: " + name + ": array или " + name + ": map";
+        String scope = target instanceof Ast.Var v ? c.scope(v) : null;
+        if ("game".equals(scope) || "save".equals(scope))
+            return "скажи это при объявлении: " + scope + " " + name + ": map или " + scope + " " + name + ": list";
+        return "скажи это строкой в теле: line " + name + ": map или line " + name + ": list";
     }
 
     private Map<String, Object> indexRead(Ast.Index i, Ast.Var into) {

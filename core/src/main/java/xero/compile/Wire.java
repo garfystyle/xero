@@ -13,6 +13,17 @@ import java.util.Map;
 import java.util.Set;
 
 public final class Wire {
+    static final java.util.Set<String> COORDINATES = java.util.Set.of("x", "y", "z", "yaw", "pitch");
+    static final String ATTRIBUTE_SETTING = "attribute_type";
+    static final java.util.Set<String> KEEPS_ELEMENTS = java.util.Set.of("set_variable_remove_list_value", "set_variable_remove_list_value_at_index",
+            "set_variable_remove_list_duplicates", "set_variable_remove_map_entry", "set_variable_reverse_list", "set_variable_reverse_map",
+            "set_variable_randomize_list_order", "set_variable_randomize_map_order", "set_variable_sort_any_list", "set_variable_sort_any_map",
+            "set_variable_trim_list", "set_variable_clear_map");
+    static final java.util.Set<String> LAST_IS_ELEMENT = java.util.Set.of("set_variable_set_list_value", "set_variable_insert_list_value",
+            "set_variable_set_map_value", "set_variable_put_map_value");
+    static final java.util.regex.Pattern PARAMETER_READ = java.util.regex.Pattern.compile("%var(?:_local)?\\(([^()]+)\\)");
+    static final java.util.regex.Pattern VARIABLE_PLACEHOLDER = java.util.regex.Pattern.compile("%var(?:_local|_line|_game|_save)?\\([^()]*\\)");
+
     public record Builtin(String name, boolean value, String doc, List<String> args) {}
 
     public static final List<Builtin> BUILTINS = List.of(

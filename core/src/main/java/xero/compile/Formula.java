@@ -307,6 +307,7 @@ final class Formula {
 
     void texts(String text, Span at, int shift) {
         c.lints.text(text);
+        c.lints.parameterRead(text, at, false);
         for (Texts.Problem p : Texts.check(c.data, text, c::known)) {
             int start = Math.min(at.end() - 1, at.start() + shift + p.offset());
             c.diagnostics.add(new Diagnostic(false, p.message(), Math.max(at.start(), start), at.end(), p.hint()));
