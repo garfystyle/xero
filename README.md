@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.3-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.3%20бета-6366f1?style=flat-square"></a>
+  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.4-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.4%20бета-6366f1?style=flat-square"></a>
   <img alt="Minecraft" src="https://img.shields.io/badge/Minecraft-26.2-3de8f5?style=flat-square">
   <img alt="VS Code" src="https://img.shields.io/badge/VS%20Code-Java%20не%20нужна-6366f1?style=flat-square">
 </p>
@@ -65,12 +65,12 @@ when player_jump {
 
 **VS Code** — этого достаточно, Java не нужна.
 
-1. Скачай `xero-0.1.3-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.3-beta).
+1. Скачай `xero-0.1.4-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.4-beta).
 2. VS Code → Расширения → `···` → **Установить из VSIX…**
 
 **Терминал** — по желанию, нужна Java 25.
 
-1. Скачай `xero-0.1.3-beta.zip` оттуда же и распакуй.
+1. Скачай `xero-0.1.4-beta.zip` оттуда же и распакуй.
 2. Добавь папку `bin` в `PATH`.
 
 **Мод [XeroCode](https://github.com/garfystyle/xerocode)** — по желанию: код уходит в игру сам, без команды в чате.
@@ -378,6 +378,33 @@ when player_join {
 ```
 
 Значение подставляется при сборке, переменной на сервере нет. `if` с постоянным условием сворачивается: при `false` блоков не будет. Так же внутри `and`, `or` и `?:`: `if DEBUG and x > 0`.
+
+Это то же, что `inline` в JMCC: на `inline X = …` сборка подскажет `const` и поправит по Ctrl+.
+
+### Вызов от значения
+
+```kotlin
+const SWORD = item(diamond_sword, name: "&bМеч")
+
+when player_join {
+    give_items(SWORD.set_item_amount(10))
+    rock = item(stone)
+    rock.set_item_amount(5)
+    give_items(rock.set_item_amount(2).set_item_lore(["&7камень"]))
+    numbers = [3, 1, 2]
+    numbers.sort_any_list()
+    if numbers.list_contains_value(2) {
+        send_message("есть")
+    }
+}
+```
+
+- `x.f(a)` — то же, что `f(x, a)`: значение слева встаёт первым аргументом после переменной результата. Цепочки читаются слева направо.
+- Отдельной строкой `x.f(a)` записывает результат обратно: `x = f(x, a)`. Действия, которые сами меняют список или словарь, вызываются как есть.
+- После точки редактор подсказывает действия и условия для этого вида значения.
+- Если предмет — `const` и вызов записан через точку, сборка сворачивает действие в готовый предмет: `SWORD.set_item_amount(10)` уходит
+  одним блоком, без временной переменной. Запись `set_item_amount(SWORD, 10)` остаётся действием: так код из мира и с полотна не меняется. Сворачиваются количество (1–99) и описание, если в каждой строке один стиль, — сервер делает такой же предмет байт в байт.
+  Имя не сворачивается: сервер собирает его по-своему, и точное сравнение предметов разошлось бы.
 
 ### Формулы и подстановки
 

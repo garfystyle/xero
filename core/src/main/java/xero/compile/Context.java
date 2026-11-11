@@ -49,6 +49,8 @@ final class Context {
     final List<Imported> modules = new ArrayList<>();
     final Map<String, String> external = new LinkedHashMap<>();
     final Map<String, String> origins = new LinkedHashMap<>();
+    final Map<Object, Compiler.Origin> sources = new java.util.IdentityHashMap<>();
+    final java.util.Set<Ast.Call> methodCalls = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
     final Map<String, String> kinds = new LinkedHashMap<>();
     final Map<String, String> likely = new LinkedHashMap<>();
     final Map<String, String> slots = new LinkedHashMap<>();

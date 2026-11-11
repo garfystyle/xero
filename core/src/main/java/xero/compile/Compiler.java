@@ -35,7 +35,10 @@ public final class Compiler {
 
     public record Declared(Ast.Func func, String file, String module) {}
 
-    public record Result(Map<String, Object> module, List<Diagnostic> diagnostics, List<Declared> declared, List<Object> connected) {
+    public record Origin(String file, int start, int end) {}
+
+    public record Result(Map<String, Object> module, List<Diagnostic> diagnostics, List<Declared> declared, List<Object> connected,
+                         List<List<Origin>> columns) {
         public List<Ast.Func> imported() {
             List<Ast.Func> out = new ArrayList<>();
             for (Declared d : declared) if (d.module() != null) out.add(d.func());
@@ -84,7 +87,7 @@ public final class Compiler {
             return run(data, names, name, text, loader, front);
         } catch (StackOverflowError e) {
             return new Result(obj("handlers", new ArrayList<>()), List.of(Diagnostic.error("код вложен слишком глубоко — раздели его на части", 0, 1)),
-                    List.of(), List.of());
+                    List.of(), List.of(), List.of());
         }
     }
 
@@ -106,7 +109,27 @@ public final class Compiler {
         c.processes.forEach((n, f) -> declared.add(new Declared(f, c.origins.get(n), c.external.get(n))));
         List<Object> connected = new ArrayList<>();
         for (Context.Imported m : c.modules) if (m.entry() != null) connected.add(m.entry());
-        return new Result(module, diagnostics, declared, connected);
+        return new Result(module, diagnostics, declared, connected, columns(module, c.sources));
+    }
+
+    private static List<List<Origin>> columns(Map<String, Object> module, Map<Object, Origin> sources) {
+        List<List<Origin>> out = new ArrayList<>();
+        for (Object h : Json.array(module.get("handlers"))) {
+            List<Origin> line = new ArrayList<>();
+            if (Json.object(h).get("operations") instanceof List<?> ops) walk(Json.array(ops), sources, line);
+            out.add(line);
+        }
+        return out;
+    }
+
+    private static void walk(List<Object> ops, Map<Object, Origin> sources, List<Origin> out) {
+        for (Object op : ops) {
+            Origin origin = sources.get(op);
+            out.add(origin);
+            if (!(op instanceof Map<?, ?> m) || !(m.get("operations") instanceof List<?> body)) continue;
+            walk(Json.array(body), sources, out);
+            out.add(origin);
+        }
     }
 
     private void load(List<Unit> units, Set<String> seen, String name, String text, Loader loader) {
@@ -174,6 +197,14 @@ public final class Compiler {
     }
 
     private Map<String, Object> module(List<Unit> units) {
+        Set<String> functions = new java.util.HashSet<>();
+        for (Unit u : units) functions.addAll(Methods.functions(u.ast()));
+        for (Context.Imported m : c.modules)
+            for (Object h : m.handlers())
+                if (h instanceof Map<?, ?> line && line.get("name") instanceof String name) functions.add(name);
+        Methods methods = new Methods(c.names, functions::contains);
+        for (int i = 0; i < units.size(); i++) units.set(i, new Unit(units.get(i).file(), methods.file(units.get(i).ast())));
+        c.methodCalls.addAll(methods.made());
         c.declarations.collect(units);
         c.order.collect(units);
         List<Object> handlers = new ArrayList<>();
@@ -311,6 +342,9 @@ public final class Compiler {
             c.order.plan(s);
             statementInto(s, out);
         } finally {
+            Origin origin = new Origin(c.diagnostics.file, s.span().start(), s.span().end());
+            for (Object op : c.prelude) c.sources.putIfAbsent(op, origin);
+            for (Object op : out) c.sources.putIfAbsent(op, origin);
             ops.addAll(c.prelude);
             ops.addAll(out);
             c.prelude = saved;
@@ -1249,6 +1283,12 @@ public final class Compiler {
         if (inner instanceof Ast.Call call && !c.userCall(call) && !(call.qualifier() == null
                 && (Wire.VALUES.contains(call.name()) || c.formula.mathCall(call)))) {
             Data.Action action = action(call);
+            Ast.Call folded = value instanceof Ast.Targeted ? null : c.values.foldedItem(action, call);
+            if (folded != null) {
+                Data.Action set = c.data.actions().get("set_variable_value");
+                out.add(obj("action", set.id(), "values", bind(set, List.of(new Arg(null, null, folded)), target, a.span())));
+                return;
+            }
             Map<String, Object> op = obj("action", action.id(), "values", bind(action, call.args(), target, call.span()));
             if (value instanceof Ast.Targeted t) op.put("selection", selection(action, t.target(), t.targetSpan()));
             if (action.container()) op.put("operations", new ArrayList<>());

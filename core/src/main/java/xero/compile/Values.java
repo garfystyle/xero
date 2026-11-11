@@ -30,6 +30,63 @@ final class Values {
         this.c = c;
     }
 
+    private static final String AMOUNT = "set_variable_set_item_amount", LORE = "set_variable_set_item_lore";
+    private static final java.util.regex.Pattern ONE_STYLE = java.util.regex.Pattern.compile("^(?:[&§][0-9a-fk-or])*[^&§%]*$");
+
+    Ast.Call foldedItem(Data.Action action, Ast.Call call) {
+        boolean amount = AMOUNT.equals(action.canonical()), lore = LORE.equals(action.canonical());
+        if (!amount && !lore || !c.methodCalls.contains(call)) return null;
+        Map<String, Expr> bound = new LinkedHashMap<>();
+        List<Data.Arg> order = new ArrayList<>(action.args());
+        order.remove(action.result());
+        int positional = 0;
+        for (Arg a : call.args()) {
+            String key = a.name() != null ? a.name().toLowerCase(Locale.ROOT) : positional < order.size() ? order.get(positional++).id() : null;
+            if (key == null || bound.put(key, a.value()) != null) return null;
+        }
+        String what = amount ? "amount" : "lore";
+        if (bound.size() != 2 || !(bound.get("item") instanceof Ast.Var held) || c.constant(held) == null
+                || !(c.resolved(held) instanceof Ast.Call item) || item.qualifier() != null || item.quoted()
+                || !item.name().equals("item") || !constant(item) || !bound.containsKey(what)) return null;
+        Expr value = c.resolved(bound.get(what));
+        List<Arg> args = new ArrayList<>();
+        int at = 0;
+        for (Arg a : item.args()) {
+            if (a.name() == null) {
+                if (at++ == 0 || !amount) args.add(a);
+            } else if (!a.name().equals(amount ? "count" : "lore")) {
+                args.add(a);
+            }
+        }
+        if (amount) {
+            if (!(value instanceof Ast.Num n) || n.millis() != null) return null;
+            double count = Double.parseDouble(n.text());
+            if (count != Math.rint(count) || count < 1 || count > 99) return null;
+            args.add(Math.min(1, args.size()), new Arg(null, null, new Ast.Num(String.valueOf((int) count), n.span())));
+        } else {
+            List<Expr> lines = value instanceof Ast.ListLit l ? l.items() : List.of(value);
+            for (Expr line : lines)
+                if (!(line instanceof Ast.Str s) || s.interpolated() || s.prefix() != null && !s.prefix().equals("legacy")
+                        || !ONE_STYLE.matcher(s.text()).matches()) return null;
+            args.add(new Arg("lore", null, new Ast.ListLit(lines, value.span())));
+        }
+        return new Ast.Call(null, "item", false, item.nameSpan(), args, call.span());
+    }
+
+    private boolean constant(Expr e) {
+        return switch (c.resolved(e)) {
+            case Ast.Num n -> true;
+            case Ast.Str s -> !s.interpolated() && s.text().indexOf('%') < 0;
+            case Ast.Var v -> v.scope() == null && !c.known(v.name());
+            case Ast.Unary u -> constant(u.operand());
+            case Ast.ListLit l -> l.items().stream().allMatch(this::constant);
+            case Ast.MapLit m -> m.keys().stream().allMatch(this::constant) && m.values().stream().allMatch(this::constant);
+            case Ast.Call call -> call.qualifier() == null && !call.quoted() && call.name().equals("item")
+                    && call.args().stream().allMatch(a -> constant(a.value()));
+            default -> false;
+        };
+    }
+
     Object factory(Ast.Call call) {
         Map<String, Expr> named = new LinkedHashMap<>();
         List<Expr> positional = new ArrayList<>();

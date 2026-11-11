@@ -13,10 +13,15 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public abstract class Dialect {
-    public record Built(Map<String, Object> module, List<Diagnostic> diagnostics) {
+    public record Built(Map<String, Object> module, List<Diagnostic> diagnostics, List<List<Compiler.Origin>> columns) {
+        public Built(Map<String, Object> module, List<Diagnostic> diagnostics) {
+            this(module, diagnostics, List.of());
+        }
+
         public boolean ok() {
             if (module == null) return false;
             for (Diagnostic d : diagnostics) if (d.error()) return false;
@@ -213,6 +218,70 @@ public abstract class Dialect {
         if (syntax().dollar()) text = code(text);
         if ("plain".equals(value.get("parsing")) && text.startsWith("\"") && syntax().stringPrefix("plain")) text = "plain" + text;
         return text;
+    }
+
+    public Map<String, Object> operationOf(String statement) {
+        String program = statementProgram(statement);
+        if (program == null) return null;
+        Built built = build("значение." + extension(), program, null);
+        if (!built.ok()) return null;
+        List<Object> handlers = Json.array(built.module().get("handlers"));
+        if (handlers.size() != 1 || !(Json.object(handlers.get(0)).get("operations") instanceof List<?> ops) || ops.size() != 1)
+            return null;
+        return Json.object(ops.get(0));
+    }
+
+    public String operationText(Map<String, Object> operation) {
+        Map<String, Object> handler = new LinkedHashMap<>();
+        handler.put("type", "event");
+        handler.put("event", "player_join");
+        handler.put("position", new Json.Num("0"));
+        handler.put("operations", new ArrayList<Object>(List.of(canonical(operation))));
+        Map<String, Object> module = new LinkedHashMap<>();
+        module.put("handlers", new ArrayList<Object>(List.of(handler)));
+        String[] lines = decompile(module).text().split("\n", -1);
+        int open = -1, close = -1;
+        for (int i = 0; i < lines.length; i++) {
+            String s = lines[i].strip();
+            if (open < 0 && s.endsWith("{")) open = i;
+            if (s.equals("}")) close = i;
+        }
+        if (open < 0 || close <= open + 1) return null;
+        int indent = Integer.MAX_VALUE;
+        for (int i = open + 1; i < close; i++)
+            if (!lines[i].isBlank()) indent = Math.min(indent, lines[i].length() - lines[i].stripLeading().length());
+        List<String> body = new ArrayList<>();
+        for (int i = open + 1; i < close; i++) body.add(lines[i].isBlank() ? "" : lines[i].substring(indent));
+        String text = String.join("\n", body).strip();
+        if (text.endsWith(";")) text = text.substring(0, text.length() - 1);
+        Map<String, Object> again = operationOf(text);
+        return again != null && Objects.equals(again.get("action"), operation.get("action")) ? text : null;
+    }
+
+    private static Object canonical(Object node) {
+        if (node instanceof List<?> list) {
+            List<Object> out = new ArrayList<>(list.size());
+            for (Object item : list) out.add(canonical(item));
+            return out;
+        }
+        if (!(node instanceof Map<?, ?> map)) return node;
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : map.entrySet()) out.put(String.valueOf(e.getKey()), canonical(e.getValue()));
+        return plain(out);
+    }
+
+    private String statementProgram(String statement) {
+        String program = holder("0");
+        if (program == null || statement.isBlank()) return null;
+        String[] lines = program.split("\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (!line.contains(HELD)) continue;
+            int indent = line.length() - line.stripLeading().length();
+            lines[i] = line.substring(0, indent) + statement + (line.stripTrailing().endsWith(";") ? ";" : "");
+            return String.join("\n", lines);
+        }
+        return null;
     }
 
     private static Map<String, Object> plain(Map<String, Object> value) {

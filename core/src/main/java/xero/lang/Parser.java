@@ -75,6 +75,17 @@ public final class Parser {
         t = peek();
         if (!decorators.isEmpty() && !t.keyword("func", "process", "when"))
             throw fail("пометки @… ставят только перед when, func и process", t);
+        if (inline(t)) {
+            Token word = next();
+            if (peek().text().equals("var")) next();
+            Token name = next();
+            diagnostics.add(new Diagnostic(true, "в Xero постоянная пишется const", word.start(), name.start(),
+                    "const " + name.text() + " = …: значение подставится при сборке, как inline в JMCC",
+                    List.of(Diagnostic.Fix.replace(word.start(), name.start(), "const "))));
+            expect("=", "постоянной нужно значение: const " + name.text() + " = 5");
+            Expr value = expr();
+            return new Ast.Const(name.text(), span(name), value, span(t).to(value.span()));
+        }
         if (t.keyword("const") && (peek(1).kind() == Token.Kind.IDENT || peek(1).kind() == Token.Kind.NAME)) {
             next();
             Token name = next();
@@ -206,10 +217,16 @@ public final class Parser {
         return new Block(stmts, span(open).to(span(close)));
     }
 
+    private boolean inline(Token t) {
+        if (t.kind() != Token.Kind.IDENT || !t.text().equals("inline")) return false;
+        int at = peek(1).text().equals("var") ? 2 : 1;
+        return (peek(at).kind() == Token.Kind.IDENT || peek(at).kind() == Token.Kind.NAME) && peek(at + 1).is("=");
+    }
+
     private Stmt statement() {
         Token t = peek();
-        if (t.keyword("const") && peek(1).kind() == Token.Kind.IDENT && peek(2).is("="))
-            throw fail("const пишут вне when, func и process — в начале файла", t);
+        if (t.keyword("const") && peek(1).kind() == Token.Kind.IDENT && peek(2).is("=") || inline(t))
+            throw fail((inline(t) ? "в Xero это const, и " : "") + "const пишут вне when, func и process — в начале файла", t);
         if (assignsWord()) return assignment(t);
         if (t.keyword("if")) return ifStatement();
         if (t.keyword("repeat") && !peek(1).is(".")) {
@@ -568,15 +585,25 @@ public final class Parser {
 
     private Expr primary() {
         Expr e = atom();
-        while (peek().is("[") && !peek().newline() && indexable(e)) {
-            next();
-            nest++;
-            Expr index = expr();
-            nest--;
-            Token close = expect("]", "ожидалась «]»");
-            e = new Ast.Index(e, index, e.span().to(span(close)));
+        while (true) {
+            if (peek().is("[") && !peek().newline() && indexable(e)) {
+                next();
+                nest++;
+                Expr index = expr();
+                nest--;
+                Token close = expect("]", "ожидалась «]»");
+                e = new Ast.Index(e, index, e.span().to(span(close)));
+            } else if (peek().is(".") && !peek().newline() && peek(1).kind() == Token.Kind.IDENT && peek(2).is("(")) {
+                next();
+                Token name = next();
+                List<Arg> args = new ArrayList<>();
+                args.add(new Arg(null, null, e));
+                args.addAll(args());
+                e = new Ast.Call(null, name.text(), false, span(name), args, e.span().to(previousSpan()));
+            } else {
+                return e;
+            }
         }
-        return e;
     }
 
     private static boolean indexable(Expr e) {

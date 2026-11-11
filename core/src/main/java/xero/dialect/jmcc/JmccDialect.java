@@ -83,7 +83,7 @@ public final class JmccDialect extends Dialect {
         try {
             Project project = new Project(table(), file, text, loader);
             Compiler.Result r = Compiler.compile(service.data(), service.names(), file, text, project.loader(), project.front());
-            return new Built(r.module(), r.diagnostics());
+            return new Built(r.module(), r.diagnostics(), r.columns());
         } catch (RuntimeException | StackOverflowError e) {
             return new Built(null, List.of(Diagnostic.error("код не собрать: слишком сложное выражение", 0, Math.min(1, text.length()))));
         }

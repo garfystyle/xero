@@ -1,6 +1,7 @@
 package xero.ide;
 
 import xero.compile.Compiler;
+import xero.compile.Methods;
 import xero.compile.Decompiler;
 import xero.compile.Wire;
 import xero.data.Data;
@@ -210,10 +211,17 @@ public final class Service {
         return r;
     }
 
+    private Ast.File parsed(String text) {
+        Ast.File file = Parser.parse(text, new ArrayList<>());
+        java.util.Set<String> functions = new java.util.HashSet<>(Methods.functions(file));
+        for (Compiler.Declared d : known) functions.add(d.func().name());
+        return new Methods(names, functions::contains).file(file);
+    }
+
     private Map<String, String> sharedVariables(Map<String, String> files) {
         Map<String, String> out = new LinkedHashMap<>();
         for (String t : files.values()) {
-            Walk w = walk(t, Parser.parse(t, new ArrayList<>()), false);
+            Walk w = walk(t, parsed(t), false);
             for (Occ o : w.occs) if (o.role() == Role.VAR) out.putIfAbsent(o.name(), w.scopes.getOrDefault(o.name(), "local"));
         }
         return out;
@@ -361,7 +369,7 @@ public final class Service {
         boolean function = o.role() != Role.VAR;
         sources.forEach((file, t) -> {
             List<Span> found = new ArrayList<>();
-            for (Occ x : walk(t, Parser.parse(t, new ArrayList<>()), true).occs)
+            for (Occ x : walk(t, parsed(t), true).occs)
                 if (same(x, o, function)) found.add(new Span(x.start(), x.end()));
             if (!found.isEmpty()) out.put(file, found);
         });
@@ -466,6 +474,7 @@ public final class Service {
                 out.add(withSnippet(new Item(Names.shortName(e.action().id()), e.space() == Names.Space.CONDITION ? "condition" : "action",
                         e.action().label() + " · " + e.action().category().russian, actionDoc(e), true, 0), e.action()));
             }
+            if (out.isEmpty() && !Keywords.qualifier(second.text())) out.addAll(methods(kindOf(a.file(), second.text())));
             return finish(prefix, out);
         }
         int depth = 0;
@@ -776,6 +785,87 @@ public final class Service {
         return out;
     }
 
+    private static final List<String> VALUE_ACTIONS = List.of("set_variable_", "if_variable_");
+
+    private List<Item> methods(String kind) {
+        List<Item> out = new ArrayList<>();
+        for (Names.Entry e : names.entries()) {
+            Data.Action act = e.action();
+            if (act.alias() || act.blank() || VALUE_ACTIONS.stream().noneMatch(act.id()::startsWith)) continue;
+            String takes = receiverKind(act);
+            if (takes == null || kind != null && !kind.equals(takes)) continue;
+            out.add(new Item(Names.shortName(act.id()), e.space() == Names.Space.CONDITION ? "condition" : "action",
+                    act.label() + " · от «" + takes + "»", actionDoc(e), true, 0));
+        }
+        return out;
+    }
+
+    private static final String APPEND = "set_variable_append_value";
+
+    private static String receiverKind(Data.Action act) {
+        Data.Arg result = act.result();
+        for (Data.Arg x : act.args()) {
+            if (x == result) continue;
+            return Data.ANY.equals(x.kind()) && act.id().equals(APPEND) ? "Список" : x.kind();
+        }
+        return null;
+    }
+
+    private static String kindOf(Ast.File file, String name) {
+        Ast.Expr value = null;
+        for (Ast.Item item : file.items()) if (item instanceof Ast.Const k && k.name().equals(name)) value = k.value();
+        if (value == null) value = assigned(file, name);
+        return switch (value) {
+            case null -> null;
+            case Ast.Str s -> "Текст";
+            case Ast.Num n -> "Число";
+            case Ast.ListLit l -> "Список";
+            case Ast.MapLit m -> "Словарь";
+            case Ast.Call c when c.qualifier() == null -> switch (c.name()) {
+                case "item" -> "Предмет";
+                case "loc" -> "Местоположение";
+                case "vec" -> "Вектор";
+                case "block" -> "Блок";
+                case "sound" -> "Звук";
+                case "particle" -> "Эффект частиц";
+                case "potion" -> "Зелье";
+                default -> null;
+            };
+            default -> null;
+        };
+    }
+
+    private static Ast.Expr assigned(Ast.File file, String name) {
+        for (Ast.Item item : file.items()) {
+            Ast.Block body = item instanceof Ast.Event e ? e.body() : item instanceof Ast.Func f ? f.body() : null;
+            Ast.Expr found = body == null ? null : assigned(body, name);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private static Ast.Expr assigned(Ast.Block block, String name) {
+        if (block == null) return null;
+        for (Ast.Stmt s : block.stmts()) {
+            Ast.Expr found = switch (s) {
+                case Ast.Assign a when a.name().equals(name) && a.op().equals("=") -> a.value();
+                case Ast.If i -> {
+                    Ast.Expr in = null;
+                    for (Ast.Branch b : i.branches()) if (in == null) in = assigned(b.body(), name);
+                    yield in != null ? in : assigned(i.otherwise(), name);
+                }
+                case Ast.Repeat r -> assigned(r.body(), name);
+                case Ast.ForRange f -> assigned(f.body(), name);
+                case Ast.ForEach f -> assigned(f.body(), name);
+                case Ast.While w -> assigned(w.body(), name);
+                case Ast.Forever f -> assigned(f.body(), name);
+                default -> null;
+            };
+            if (found != null) return found;
+        }
+        return null;
+    }
+
     private static Item withSnippet(Item item, Data.Action action) {
         String recipe = RECIPES.get(action.id());
         if (recipe != null) return item.snippet(item.label() + recipe, false);
@@ -835,7 +925,7 @@ public final class Service {
         if (a != null && a.text().equals(text)) return a;
         List<Lexer.Comment> comments = new ArrayList<>();
         List<Token> tokens = Lexer.tokens(text, new ArrayList<>(), comments);
-        Ast.File file = Parser.parse(text, new ArrayList<>());
+        Ast.File file = parsed(text);
         a = new Analysis(text, tokens, comments, file, walk(text, file, true));
         last = a;
         return a;

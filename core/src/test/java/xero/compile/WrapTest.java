@@ -235,11 +235,54 @@ class WrapTest {
     }
 
     @Test
+    void lineWrittenAtTheEndIsCarriedWhenReadOnlyBefore() {
+        List<Object> ops = new ArrayList<>();
+        Map<String, Object> y = variable("y", "line");
+        ops.add(Context.obj("action", "player_send_message", "values", new ArrayList<Object>(List.of(Context.entry("messages", y)))));
+        for (int i = 0; i < 80; i++) {
+            ops.add(Context.obj("action", "set_variable_value", "values",
+                    new ArrayList<Object>(List.of(Context.entry("variable", y), Context.entry("value", number(i))))));
+            ops.add(Context.obj("action", "player_send_message", "values", new ArrayList<Object>(List.of(Context.entry("messages", y)))));
+        }
+        Map<String, Object> handler = handler(ops);
+        String source = Json.write(handler);
+        Wrap wrap = new Wrap(DATA, Set.of());
+        Map<String, Object> changed = Json.object(Json.parse(source));
+        assertTrue(wrap.line(changed));
+        assertTrue(Delivery.width(changed) <= Wrap.WIDEST);
+        sameBehaviour(source, changed, wrap, "y в хвосте");
+    }
+
+    @Test
     void randomProgramsBehaveTheSame() {
+        int[] counts = randomPrograms(80, 400);
+        int carried = counts[0], stuck = counts[1], passed = counts[2];
+        assertTrue(carried > stuck, carried + " перенесено, " + stuck + " не вышло");
+        assertTrue(passed > carried, passed + " функций с параметрами на " + carried + " строк");
+    }
+
+    @Test
+    void randomProgramsWritingLineVariablesBehaveTheSame() {
+        int[] counts = randomPrograms(3, 400);
+        assertTrue(counts[0] > 0, counts[0] + " перенесено, " + counts[1] + " не вышло");
+    }
+
+    private static void sameBehaviour(String source, Map<String, Object> changed, Wrap wrap, String what) {
+        Machine was = new Machine(Map.of());
+        was.start(Json.object(Json.parse(source)));
+        Map<String, Map<String, Object>> functions = new HashMap<>();
+        for (Map<String, Object> line : wrap.added()) functions.put(String.valueOf(line.get("name")), line);
+        Machine now = new Machine(functions);
+        now.start(changed);
+        assertEquals(was.trace, now.trace, what);
+        assertEquals(was.locals, now.locals, what);
+    }
+
+    private static int[] randomPrograms(int lineOdds, int seeds) {
         int carried = 0, stuck = 0, passed = 0;
-        for (int seed = 0; seed < 400; seed++) {
+        for (int seed = 0; seed < seeds; seed++) {
             Random random = new Random(seed);
-            Program program = new Program(random);
+            Program program = new Program(random, lineOdds);
             List<Object> ops = program.list(0, 0, 30 + random.nextInt(50));
             Map<String, Object> handler = handler(ops);
             String source = Json.write(handler);
@@ -256,17 +299,9 @@ class WrapTest {
                 assertTrue(Delivery.width(line) <= Wrap.WIDEST, "сид " + seed);
                 if (Json.write(line.get("values")).contains("parameters")) passed++;
             }
-            Machine was = new Machine(Map.of());
-            was.start(Json.object(Json.parse(source)));
-            Map<String, Map<String, Object>> functions = new HashMap<>();
-            for (Map<String, Object> line : wrap.added()) functions.put(String.valueOf(line.get("name")), line);
-            Machine now = new Machine(functions);
-            now.start(changed);
-            assertEquals(was.trace, now.trace, "сид " + seed);
-            assertEquals(was.locals, now.locals, "сид " + seed);
+            sameBehaviour(source, changed, wrap, "сид " + seed + ", строчные 1/" + lineOdds);
         }
-        assertTrue(carried > stuck, carried + " перенесено, " + stuck + " не вышло");
-        assertTrue(passed > carried, passed + " функций с параметрами на " + carried + " строк");
+        return new int[] {carried, stuck, passed};
     }
 
     private static Map<String, Object> handler(List<Object> ops) {
@@ -287,10 +322,12 @@ class WrapTest {
 
     private static final class Program {
         private final Random random;
+        private final int lineOdds;
         private int temps;
 
-        Program(Random random) {
+        Program(Random random, int lineOdds) {
             this.random = random;
+            this.lineOdds = lineOdds;
         }
 
         private Map<String, Object> anyVariable() {
@@ -299,7 +336,7 @@ class WrapTest {
         }
 
         private Map<String, Object> target() {
-            return random.nextInt(80) == 0 ? variable(LINE_NAMES[random.nextInt(LINE_NAMES.length)], "line")
+            return random.nextInt(lineOdds) == 0 ? variable(LINE_NAMES[random.nextInt(LINE_NAMES.length)], "line")
                     : variable(LOCAL_NAMES[random.nextInt(LOCAL_NAMES.length)], "local");
         }
 

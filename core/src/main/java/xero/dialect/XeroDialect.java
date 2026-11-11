@@ -68,7 +68,7 @@ public final class XeroDialect extends Dialect {
     @Override
     public Built build(String file, String text, Compiler.Loader loader) {
         Compiler.Result r = service.build(file, text, loader);
-        return new Built(r.module(), r.diagnostics());
+        return new Built(r.module(), r.diagnostics(), r.columns());
     }
 
     @Override

@@ -71,6 +71,16 @@ public final class Wrap {
         return copy;
     }
 
+    public static Map<String, Integer> tooWide(String module) {
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (Object raw : Json.array(Json.object(Json.parse(module)).get("handlers"))) {
+            Map<String, Object> handler = Json.object(raw);
+            int width = Delivery.width(handler);
+            if (width > WIDEST) out.put(String.valueOf(handler.containsKey("name") ? handler.get("name") : handler.get("event")), width);
+        }
+        return out;
+    }
+
     static boolean carries(Map<String, Object> handler, Data data) {
         return Delivery.width(handler) <= WIDEST || new Wrap(data, Set.of()).line(Json.object(Json.parse(Json.write(handler))));
     }
@@ -89,34 +99,44 @@ public final class Wrap {
         lineVariables = new LinkedHashSet<>(params);
         lineVariables(ops, lineVariables);
         everywhere = null;
-        return fit(ops, WIDEST, false);
+        return fit(ops, WIDEST, false, Map.of());
     }
 
-    private boolean fit(List<Object> ops, int room, boolean looped) {
+    private boolean fit(List<Object> ops, int room, boolean looped, Map<String, Integer> later) {
         while (width(ops) > room) {
-            Run run = bestRun(ops, looped);
+            Run run = bestRun(ops, looped, later);
             if (run != null) move(ops, run);
-            else if (!shrink(ops, width(ops) - room, looped)) return false;
+            else if (!shrink(ops, width(ops) - room, looped, later)) return false;
         }
         return true;
     }
 
-    private boolean shrink(List<Object> ops, int excess, boolean looped) {
-        List<Map<String, Object>> bodies = new ArrayList<>();
-        for (Object raw : ops) if (opens(Json.object(raw))) bodies.add(Json.object(raw));
-        bodies.sort((a, b) -> width(body(b)) - width(body(a)));
-        for (Map<String, Object> op : bodies) {
+    private boolean shrink(List<Object> ops, int excess, boolean looped, Map<String, Integer> later) {
+        List<Integer> bodies = new ArrayList<>();
+        for (int at = 0; at < ops.size(); at++) if (opens(Json.object(ops.get(at)))) bodies.add(at);
+        bodies.sort((a, b) -> width(body(Json.object(ops.get(b)))) - width(body(Json.object(ops.get(a)))));
+        for (int at : bodies) {
+            Map<String, Object> op = Json.object(ops.get(at));
             List<Object> inside = body(op);
             int before = width(inside);
-            fit(inside, Math.max(0, before - excess), looped || action(op).startsWith(LOOP));
+            Map<String, Integer> after = joined(later, mentions(ops.subList(at + 1, ops.size())));
+            fit(inside, Math.max(0, before - excess), looped || action(op).startsWith(LOOP), after);
             if (width(inside) < before) return true;
         }
         return false;
     }
 
-    private Run bestRun(List<Object> ops, boolean looped) {
+    private static Map<String, Integer> joined(Map<String, Integer> a, Map<String, Integer> b) {
+        Map<String, Integer> out = new HashMap<>(a);
+        b.forEach((name, count) -> out.merge(name, count, Integer::sum));
+        return out;
+    }
+
+    private Run bestRun(List<Object> ops, boolean looped, Map<String, Integer> later) {
         List<Unit> units = units(ops);
         if (everywhere == null) everywhere = mentions(root);
+        List<Map<String, Integer>> after = new ArrayList<>(Collections.nCopies(units.size() + 1, later));
+        for (int i = units.size() - 1; i >= 0; i--) after.set(i, joined(after.get(i + 1), units.get(i).mentions()));
         Run best = null;
         for (int first = 0; first < units.size(); first++) {
             int width = 0;
@@ -129,16 +149,18 @@ public final class Wrap {
                 unit.mentions().forEach((name, count) -> inside.merge(name, count, Integer::sum));
                 written.addAll(unit.writes());
                 if (width < 2 || best != null && width <= best.width()) continue;
-                List<String> passed = passed(inside, written, looped);
+                List<String> passed = passed(inside, written, looped, after.get(last + 1));
                 if (passed != null) best = new Run(units.get(first).from(), unit.to(), width, passed);
             }
         }
         return best;
     }
 
-    private List<String> passed(Map<String, Integer> inside, Set<String> written, boolean looped) {
-        for (String name : written)
-            if (usedOutside(name, inside) || looped && !name.startsWith(Wire.TEMP)) return null;
+    private List<String> passed(Map<String, Integer> inside, Set<String> written, boolean looped, Map<String, Integer> after) {
+        for (String name : written) {
+            boolean lost = looped ? usedOutside(name, inside) || !name.startsWith(Wire.TEMP) : after.getOrDefault(name, 0) > 0;
+            if (lost) return null;
+        }
         List<String> out = new ArrayList<>();
         for (String name : inside.keySet()) if (usedOutside(name, inside)) out.add(name);
         Collections.sort(out);

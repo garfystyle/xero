@@ -39,7 +39,7 @@ tasks.register('docs', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'xero.cli.Main'
     workingDir = rootProject.projectDir
-    def lang = rootProject.file('../dump/lang-2026-11-04/creative_plus_ru_RU.properties')
+    def lang = rootProject.file('../dump/lang-2026-11-11/creative_plus__ru_RU.properties')
     args(['names', '--docs', 'docs'] + (lang.isFile() ? ['--lang', lang.path] : []))
     jvmArgs '-Dstdout.encoding=UTF-8'
 }

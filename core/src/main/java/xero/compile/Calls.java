@@ -132,6 +132,8 @@ final class Calls {
     Object action(Ast.Call call, String target, Span targetSpan) {
         Data.Action action = c.compiler.action(call);
         if (action.container()) throw c.stop("у «" + call.shown() + "» есть тело — его не подставить как значение", call.span());
+        Ast.Call folded = target == null ? c.values.foldedItem(action, call) : null;
+        if (folded != null) return c.values.factory(folded);
         Ast.Var tmp = c.temp(call.span());
         Map<String, Object> op = obj("action", action.id(), "values", c.compiler.bind(action, call.args(), tmp, call.span()));
         if (target != null) op.put("selection", c.compiler.selection(action, target, targetSpan));

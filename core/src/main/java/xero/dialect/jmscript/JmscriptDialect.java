@@ -96,7 +96,7 @@ public final class JmscriptDialect extends Dialect {
     public Built build(String file, String text, Compiler.Loader loader) {
         try {
             Compiler.Result r = Compiler.compile(service.data(), service.names(), file, text, loader, front);
-            return new Built(r.module(), r.diagnostics());
+            return new Built(r.module(), r.diagnostics(), r.columns());
         } catch (RuntimeException | StackOverflowError e) {
             return new Built(null, List.of(Diagnostic.error("сборка не удалась: " + e, 0, Math.min(1, text.length()))));
         }

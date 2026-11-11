@@ -7,7 +7,7 @@
 | [Игрок](player.md) | 175 | 42 |
 | [Сущность](entity.md) | 219 | 21 |
 | [Мир](world.md) | 133 | 22 |
-| [Переменные](variable.md) | 318 | 28 |
+| [Переменные](variable.md) | 320 | 29 |
 | [Выборка](select.md) | 34 | — |
 | [Повторения](repeat.md) | 11 | — |
 | [Контроль](control.md) | 7 | — |
@@ -207,6 +207,7 @@
 | Направить местоположение | [`var.face_location`](variable.md#varface_location) | Переменные |
 | Настроить поиск пути | [`set_pathfinder_settings`](entity.md#set_pathfinder_settings) | Сущность |
 | Начать использование предмета | [`start_using_item`](player.md#start_using_item) | Игрок |
+| Не равна | [`not_equals`](variable.md#not_equals) | Переменные |
 | Нормально распределённое случайное число | [`gaussian_distribution`](variable.md#gaussian_distribution) | Переменные |
 | Обернуть число | [`warp`](variable.md#warp) | Переменные |
 | Обновить смежные блоки | [`update_block`](world.md#update_block) | Мир |
@@ -359,6 +360,8 @@
 | Получить значение компонента еды предмета | [`get_item_food_properties`](variable.md#get_item_food_properties) | Переменные |
 | Получить значение компонента оружия предмета | [`get_item_weapon`](variable.md#get_item_weapon) | Переменные |
 | Получить значение словаря | [`get_map_value_single`](variable.md#get_map_value_single) | Переменные |
+| Получить значения из списка | [`get_list_value_multiple`](variable.md#get_list_value_multiple) | Переменные |
+| Получить значения словаря | [`get_map_value`](variable.md#get_map_value) | Переменные |
 | Получить имена переменных | [`get_list_variables`](variable.md#get_list_variables) | Переменные |
 | Получить имя контейнера | [`get_container_name`](variable.md#get_container_name) | Переменные |
 | Получить имя предмета | [`get_item_name`](variable.md#get_item_name) | Переменные |
