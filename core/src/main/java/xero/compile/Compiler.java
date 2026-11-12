@@ -576,7 +576,6 @@ public final class Compiler {
 
     List<Object> bind(Data.Action action, List<Arg> given, Ast.Var into, Span at) {
         Map<String, Expr> bound = new LinkedHashMap<>();
-        Map<String, Arg> byPosition = new LinkedHashMap<>();
         List<Arg> args = given;
         List<Data.Arg> list = action.args();
         List<Data.Arg> order = new ArrayList<>(list);
@@ -598,10 +597,7 @@ public final class Compiler {
                 if (word != null) {
                     key = word.id();
                     if (positional >= order.size()) positional++;
-                } else if (positional < order.size()) {
-                    key = order.get(positional++).id();
-                    byPosition.put(key, a);
-                }
+                } else if (positional < order.size()) key = order.get(positional++).id();
                 else if (positional - order.size() < settings.size()) key = settings.get(positional++ - order.size()).id();
                 else {
                     c.error("лишний аргумент: у «" + Names.shortName(action.id()) + "» их " + order.size()
@@ -634,7 +630,6 @@ public final class Compiler {
             bound.put(key, a.value());
         }
         swapped(action, order, args);
-        misordered(action, byPosition);
         List<Object> values = new ArrayList<>();
         Ast.Var wasWriting = c.writing;
         double wasUnit = c.unit;
@@ -701,26 +696,6 @@ public final class Compiler {
             case "minutes" -> 60_000;
             default -> 50;
         };
-    }
-
-    private void misordered(Data.Action action, Map<String, Arg> byPosition) {
-        List<String> server = c.data.named(action.id());
-        if (server == null) return;
-        List<String> ours = new ArrayList<>();
-        int start = Integer.MAX_VALUE, end = -1;
-        for (Map.Entry<String, Arg> e : byPosition.entrySet()) {
-            if (!server.contains(e.getKey())) continue;
-            ours.add(e.getKey());
-            start = Math.min(start, e.getValue().value().span().start());
-            end = Math.max(end, e.getValue().value().span().end());
-        }
-        if (ours.isEmpty()) return;
-        String name = Names.shortName(action.id());
-        List<String> named = new ArrayList<>();
-        for (String p : server) named.add(p + ": …");
-        c.diagnostics.add(new Diagnostic(false, "у «" + name + "» аргументы по порядку идут не как на сервере: «"
-                + String.join("», «", ours) + "» — легко перепутать",
-                start, end, "подпиши по именам: " + name + "(" + String.join(", ", named) + ")"));
     }
 
     private void swapped(Data.Action action, List<Data.Arg> list, List<Arg> args) {

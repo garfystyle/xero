@@ -240,15 +240,15 @@ when player_join {
 - Аргументы — по порядку или по имени. Маркер — словом или по имени: `wait(1, seconds)`, `wait(1, time_unit: seconds)`.
 - У 12 действий порядок аргументов не такой, как у сервера: `remove_text`, `get_map_value`, `replace_items`, `replace_container_items`,
   `replace_blocks_in_region`, `spawn_mob`, `spawn_armor_stand`, `spawn_effect_cloud`, `ray_trace_result`, `set_item_placeable_blocks`,
-  `set_item_destroyable_blocks`, `add_custom_crafting_recipe`. Их пиши по имени: `remove_text(text: t, remove: "b")`. По порядку они
-  тоже собираются, как раньше, но компилятор предупреждает, а код из мира печатается с именами.
+  `set_item_destroyable_blocks`, `add_custom_crafting_recipe`. Их удобнее писать по имени: `remove_text(text: t, remove: "b")`. По
+  порядку они собираются, как раньше, а код из мира печатается с именами.
 - Несколько значений — списком. Лишнее сверх ёмкости — ошибка.
 - `x = действие(…)` записывает результат в `x`. Если первым передана переменная и значение меняется в ней, `x =` можно не писать: `set_item_lore(x, "текст")` — то же, что `x = set_item_lore(x, "текст")`.
 - `_` — пустая клетка. Хвост сетки дополняется сам, но посреди сетки без `_` предметы съедут:
 
 ```kotlin
 when world_start {
-    add_custom_crafting_recipe("ruby_sword", item(diamond_sword), [
+    add_custom_crafting_recipe(name: "ruby_sword", result: item(diamond_sword), items: [
         _, item(emerald), _,
         _, item(emerald), _,
         _, item(stick),   _,
