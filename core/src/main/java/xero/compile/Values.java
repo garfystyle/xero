@@ -152,6 +152,7 @@ final class Values {
             case "sound" -> sound(call, positional, named);
             case "particle" -> particle(call, positional, named);
             case "potion" -> potion(call, positional, named);
+            case "cell" -> cell(call, positional, named);
             default -> throw c.stop("нет значения «" + call.name() + "»", call.span());
         };
     }
@@ -372,6 +373,28 @@ final class Values {
         }
         return obj("type", "sound", "sound", "minecraft:" + bare, "pitch", num(pitch), "volume", num(volume),
                 "variation", variation, "source", source.toUpperCase(Locale.ROOT));
+    }
+
+    private Object cell(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
+        only(call, named, Set.of("storage", "id"));
+        if (positional.size() != 1 || !(c.resolved(positional.get(0)) instanceof Ast.Str name))
+            throw c.stop("cell(\"имя\"): имя ячейки текстом, например cell(\"данные\")", call.span());
+        if (name.text().isBlank()) throw c.stop("у ячейки нет имени", positional.get(0).span());
+        if (name.text().length() > CELL_NAME_MAX)
+            throw c.stop("имя ячейки длиннее " + CELL_NAME_MAX + " символов: сервер остановит строку", positional.get(0).span());
+        if (named.containsKey("storage") != named.containsKey("id"))
+            throw c.stop("общему хранилищу нужны оба: cell(\"имя\", storage: \"ник/хранилище\", id: \"uuid\")",
+                    call.span(), "без storage и id ячейка лежит в файлах этого мира");
+        if (!named.containsKey("storage")) return obj("type", "cell", "cell", name.text());
+        return obj("type", "cell", "cell", name.text(), "global", "true",
+                "storage", quoted(named.get("id"), "id"), "storage_path", quoted(named.get("storage"), "storage"));
+    }
+
+    private static final int CELL_NAME_MAX = 256;
+
+    private String quoted(Expr e, String what) {
+        if (c.resolved(e) instanceof Ast.Str s && !s.text().isBlank()) return s.text();
+        throw c.stop(what + " — текст в кавычках", e.span());
     }
 
     private Object particle(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {

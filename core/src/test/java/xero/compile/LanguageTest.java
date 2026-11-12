@@ -69,6 +69,17 @@ class LanguageTest {
         }
 
         boolean test(String action, List<Object> values) {
+            if (action.equals(Conditions.PAIRS)) {
+                List<Object> lefts = Json.array(Json.object(arg(values, "values")).get("values"));
+                List<Object> rights = Json.array(Json.object(arg(values, "compares")).get("values"));
+                boolean every = false;
+                for (Object v : values)
+                    if ("compare_type".equals(Json.object(v).get("name")))
+                        every = "ALL".equals(Json.object(Json.object(v).get("value")).get("enum"));
+                int same = 0;
+                for (int i = 0; i < lefts.size(); i++) if (number(lefts.get(i)) == number(rights.get(i))) same++;
+                return every ? same == lefts.size() : same > 0;
+            }
             double v = number(arg(values, "value"));
             Object compare = arg(values, "compare");
             Map<String, Object> c = Json.object(compare);

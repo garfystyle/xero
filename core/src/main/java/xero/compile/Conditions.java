@@ -33,6 +33,8 @@ final class Conditions {
 
     record Any(List<Tree> items) implements Tree {}
 
+    static final String PAIRS = "if_variable_multiple_equals";
+
     private final Context c;
 
     Conditions(Context c) {
@@ -116,22 +118,30 @@ final class Conditions {
     }
 
     Tree tree(Expr e, boolean negated) {
-        if (e instanceof Ast.Unary u && u.op().equals("not")) return tree(u.operand(), !negated);
+        return tree(e, negated, null);
+    }
+
+    private Tree tree(Expr e, boolean negated, Boolean outer) {
+        if (e instanceof Ast.Unary u && u.op().equals("not")) return tree(u.operand(), !negated, outer);
         if (e instanceof Ast.Binary b && (b.op().equals("and") || b.op().equals("or"))) {
             boolean all = b.op().equals("and") != negated;
             List<Tree> items = new ArrayList<>();
             for (Expr side : List.of(b.left(), b.right())) {
                 Boolean fixed = truth(side);
                 if (fixed != null && fixed != negated == all) continue;
-                Tree t = tree(side, negated);
+                Tree t = tree(side, negated, all);
                 if (all && t instanceof All a) items.addAll(a.items());
                 else if (!all && t instanceof Any a) items.addAll(a.items());
                 else items.add(t);
             }
             if (items.isEmpty()) return new Leaf(new Ast.Num(all ? "1" : "0", b.span()), false);
             if (items.size() == 1) return items.get(0);
-            Tree joined = joined(items, all);
-            if (joined != null) return joined;
+            if (outer == null || outer != all) {
+                Tree joined = joined(items, all);
+                if (joined != null) return joined;
+                Tree paired = paired(items, all);
+                if (paired != null) return paired;
+            }
             return all ? new All(items) : new Any(items);
         }
         return new Leaf(e, negated);
@@ -155,6 +165,39 @@ final class Conditions {
         Data.Arg compare = c.data.actions().get("if_variable_equals").arg("compare");
         if (rights.size() < 2 || compare.capacity() > 0 && rights.size() > compare.capacity()) return null;
         return new Leaf(new Ast.Binary("in", left, new Ast.ListLit(rights, left.span()), left.span()), all);
+    }
+
+    private Tree paired(List<Tree> items, boolean all) {
+        List<Expr> lefts = new ArrayList<>(), rights = new ArrayList<>();
+        Boolean equal = null;
+        Span from = null, to = null;
+        for (Tree t : items) {
+            if (!(t instanceof Leaf leaf) || !(leaf.expr() instanceof Ast.Binary b) || !(b.left() instanceof Ast.Var v)) return null;
+            if (!b.op().equals("==") && !b.op().equals("!=")) return null;
+            if (c.constant(v) != null || !plain(b.right()) || b.right() instanceof Ast.Var r && c.constant(r) != null) return null;
+            boolean same = b.op().equals("==") != leaf.negated();
+            if (equal != null && equal != same) return null;
+            equal = same;
+            lefts.add(v);
+            rights.add(b.right());
+            if (from == null) from = b.span();
+            to = b.span();
+        }
+        Data.Action action = c.data.actions().get(PAIRS);
+        if (action == null || lefts.size() < 2) return null;
+        int capacity = action.arg("values").capacity();
+        if (capacity > 0 && lefts.size() > capacity) return null;
+        Span at = from.to(to);
+        Ast.Call call = new Ast.Call(null, pairsName(), false, at, List.of(
+                new Arg("values", at, new Ast.ListLit(lefts, at)),
+                new Arg("compares", at, new Ast.ListLit(rights, at)),
+                new Arg("compare_type", at, new Ast.Var(equal == all ? "all" : "any", false, at))), at);
+        return new Leaf(call, !equal);
+    }
+
+    private String pairsName() {
+        Names.Entry e = c.names.byId(PAIRS);
+        return e.bare() ? e.name() : e.qualified();
     }
 
     private static boolean plain(Expr e) {

@@ -41,6 +41,8 @@ public final class Wire {
             new Builtin("potion", true, "зелье: potion(speed, amplifier: 1, duration: 200)",
                     List.of("id", "amplifier: число", "duration: тики")),
             new Builtin("block", true, "блок: block(stone)", List.of("id")),
+            new Builtin("cell", true, "ячейка хранилища: cell(\"данные\"), общая: cell(\"данные\", storage: \"ник/хранилище\", id: \"uuid\")",
+                    List.of("\"имя\"", "storage: \"ник/хранилище\"", "id: \"uuid\"")),
             new Builtin("num", true, "число текстом: num(\"%math(…)\")", List.of("\"%math(…)\"")),
             new Builtin("raw", true, "значение как есть: raw(\"{…JSON…}\")", List.of("\"{…JSON…}\"")),
             new Builtin("enum", true, "вариант настройки как есть: enum(\"ERROR\"), привязанный к переменной: enum(\"ERROR\", x)",

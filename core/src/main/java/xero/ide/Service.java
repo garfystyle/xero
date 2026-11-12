@@ -826,6 +826,7 @@ public final class Service {
                 case "loc" -> "Местоположение";
                 case "vec" -> "Вектор";
                 case "block" -> "Блок";
+                case "cell" -> "Ячейка";
                 case "sound" -> "Звук";
                 case "particle" -> "Эффект частиц";
                 case "potion" -> "Зелье";

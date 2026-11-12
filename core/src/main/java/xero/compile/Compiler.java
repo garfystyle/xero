@@ -365,6 +365,10 @@ public final class Compiler {
             }
             case Ast.Declare d -> c.lints.name(d.name());
             case Ast.MultiAssign m -> {
+                if (m.values().size() == 1 && m.names().size() > 1) {
+                    unpack(m, ops);
+                    return;
+                }
                 if (m.names().size() != m.values().size()) {
                     c.error("слева " + m.names().size() + " переменных, а справа " + m.values().size() + " значений", m.span());
                     return;
@@ -572,6 +576,7 @@ public final class Compiler {
 
     List<Object> bind(Data.Action action, List<Arg> given, Ast.Var into, Span at) {
         Map<String, Expr> bound = new LinkedHashMap<>();
+        Map<String, Arg> byPosition = new LinkedHashMap<>();
         List<Arg> args = given;
         List<Data.Arg> list = action.args();
         List<Data.Arg> order = new ArrayList<>(list);
@@ -593,7 +598,10 @@ public final class Compiler {
                 if (word != null) {
                     key = word.id();
                     if (positional >= order.size()) positional++;
-                } else if (positional < order.size()) key = order.get(positional++).id();
+                } else if (positional < order.size()) {
+                    key = order.get(positional++).id();
+                    byPosition.put(key, a);
+                }
                 else if (positional - order.size() < settings.size()) key = settings.get(positional++ - order.size()).id();
                 else {
                     c.error("лишний аргумент: у «" + Names.shortName(action.id()) + "» их " + order.size()
@@ -626,6 +634,7 @@ public final class Compiler {
             bound.put(key, a.value());
         }
         swapped(action, order, args);
+        misordered(action, byPosition);
         List<Object> values = new ArrayList<>();
         Ast.Var wasWriting = c.writing;
         double wasUnit = c.unit;
@@ -694,6 +703,26 @@ public final class Compiler {
         };
     }
 
+    private void misordered(Data.Action action, Map<String, Arg> byPosition) {
+        List<String> server = c.data.named(action.id());
+        if (server == null) return;
+        List<String> ours = new ArrayList<>();
+        int start = Integer.MAX_VALUE, end = -1;
+        for (Map.Entry<String, Arg> e : byPosition.entrySet()) {
+            if (!server.contains(e.getKey())) continue;
+            ours.add(e.getKey());
+            start = Math.min(start, e.getValue().value().span().start());
+            end = Math.max(end, e.getValue().value().span().end());
+        }
+        if (ours.isEmpty()) return;
+        String name = Names.shortName(action.id());
+        List<String> named = new ArrayList<>();
+        for (String p : server) named.add(p + ": …");
+        c.diagnostics.add(new Diagnostic(false, "у «" + name + "» аргументы по порядку идут не как на сервере: «"
+                + String.join("», «", ours) + "» — легко перепутать",
+                start, end, "подпиши по именам: " + name + "(" + String.join(", ", named) + ")"));
+    }
+
     private void swapped(Data.Action action, List<Data.Arg> list, List<Arg> args) {
         for (int i = 0; i + 1 < args.size() && i + 1 < list.size(); i++) {
             Arg a = args.get(i), b = args.get(i + 1);
@@ -752,6 +781,7 @@ public final class Compiler {
                 case "vec" -> Kinds.VECTOR;
                 case "item" -> Kinds.ITEM;
                 case "block" -> Kinds.BLOCK;
+                case "cell" -> Kinds.CELL;
                 case "sound" -> Kinds.SOUND;
                 case "particle" -> Kinds.PARTICLE;
                 case "potion" -> Kinds.POTION;
@@ -1326,7 +1356,41 @@ public final class Compiler {
         return "скажи это строкой в теле: line " + name + ": map или line " + name + ": list";
     }
 
+    static boolean picked(Ast.Index i) {
+        return i.index() instanceof Ast.ListLit l && !l.items().isEmpty() && l.span().start() == l.items().get(0).span().start();
+    }
+
+    private void unpack(Ast.MultiAssign m, List<Object> ops) {
+        List<Expr> vars = new ArrayList<>();
+        for (int n = 0; n < m.names().size(); n++) vars.add(new Ast.Var(m.names().get(n), false, m.nameSpans().get(n)));
+        Ast.ListLit into = new Ast.ListLit(vars, m.span());
+        Expr value = m.values().get(0);
+        if (value instanceof Ast.Index i && picked(i)) {
+            List<Expr> keys = ((Ast.ListLit) i.index()).items();
+            if (keys.size() != vars.size()) {
+                c.error("слева " + vars.size() + " переменных, а индексов " + keys.size(), m.span());
+                return;
+            }
+            boolean list = shapeOf(new Ast.Index(i.target(), keys.get(0), i.span())).equals("list");
+            Data.Action action = c.data.actions().get(list ? "set_variable_get_list_value_multiple" : "set_variable_get_map_value");
+            List<Arg> args = list
+                    ? List.of(named("variable", into), named("list", i.target()), named("number", i.index()))
+                    : List.of(named("variable", into), named("map", i.target()), named("key", i.index()));
+            ops.add(obj("action", action.id(), "values", bind(action, args, null, m.span())));
+            return;
+        }
+        String kind = Kinds.slot(kindOf(value));
+        if (kind != null && !Kinds.LIST.equals(kind)) {
+            c.error("слева " + vars.size() + " переменных, а справа 1 значение, и это не список: разложить можно только список", value.span(),
+                    "или по значению на переменную: a, b = 1, 2");
+            return;
+        }
+        Data.Action action = c.data.actions().get("set_variable_destructure_list");
+        ops.add(obj("action", action.id(), "values", bind(action, List.of(named("variables", into), named("list", value)), null, m.span())));
+    }
+
     private Map<String, Object> indexRead(Ast.Index i, Ast.Var into) {
+        if (picked(i)) throw c.stop("несколько индексов бывают только при разложении: x, y = l[0, 1]", i.span());
         boolean list = shapeOf(i).equals("list");
         if (list && i.index() instanceof Ast.Unary u && u.op().equals("-") && u.operand() instanceof Ast.Num)
             c.warning("индекс списка считается с нуля — как сервер поймёт отрицательный, не проверено", i.index().span());

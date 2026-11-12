@@ -10,13 +10,13 @@ final class Kinds {
 
     static final String TEXT = "Текст", NUMBER = "Число", LOCATION = "Местоположение", VECTOR = "Вектор",
             ITEM = "Предмет", BLOCK = "Блок", SOUND = "Звук", PARTICLE = "Эффект частиц", POTION = "Зелье",
-            LIST = "Список", MAP = "Словарь", VARIABLE = "Переменная", BOOL = "Условие";
+            LIST = "Список", MAP = "Словарь", VARIABLE = "Переменная", BOOL = "Условие", CELL = "Ячейка";
 
     private static final Map<String, String> BY_TYPE = Map.ofEntries(
             Map.entry("text", TEXT), Map.entry("number", NUMBER), Map.entry("location", LOCATION),
             Map.entry("vector", VECTOR), Map.entry("item", ITEM), Map.entry("block", BLOCK),
             Map.entry("sound", SOUND), Map.entry("particle", PARTICLE), Map.entry("potion", POTION),
-            Map.entry("array", LIST), Map.entry("map", MAP));
+            Map.entry("array", LIST), Map.entry("map", MAP), Map.entry("cell", CELL));
 
     private static final Map<String, String> PARAM_TYPES = Map.ofEntries(
             Map.entry("text", TEXT), Map.entry("number", NUMBER), Map.entry("location", LOCATION),
@@ -29,7 +29,7 @@ final class Kinds {
             Map.entry(VECTOR, "vec(x, y, z)"), Map.entry(ITEM, "item(id)"), Map.entry(BLOCK, "block(id)"),
             Map.entry(SOUND, "sound(id)"), Map.entry(PARTICLE, "particle(id)"), Map.entry(POTION, "potion(id)"),
             Map.entry(LIST, "[…] или переменная со списком"), Map.entry(MAP, "{ключ: значение} или переменная"),
-            Map.entry(VARIABLE, "имя переменной"));
+            Map.entry(VARIABLE, "имя переменной"), Map.entry(CELL, "cell(\"имя\")"));
 
     static String slot(String kind) { return BOOL.equals(kind) ? NUMBER : kind; }
 

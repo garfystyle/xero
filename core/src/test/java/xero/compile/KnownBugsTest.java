@@ -319,7 +319,7 @@ class KnownBugsTest {
 
     @Test
     void orWithDifferentVariablesExplains() {
-        Compiler.Result r = compile("when player_join {\nx = 1\ny = 2\nplayer_by_conditional(x == 1 or y == 2)\n}");
+        Compiler.Result r = compile("when player_join {\nx = 1\ny = 2\nplayer_by_conditional(x == 1 or y > 2)\n}");
         Diagnostic d = r.diagnostics().stream().filter(Diagnostic::error).findFirst().orElseThrow();
         assertTrue(d.message().contains("and/or нельзя"), d.message());
         assertTrue(d.hint().contains("in ["), d.hint());

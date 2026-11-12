@@ -84,6 +84,7 @@ public final class Data {
     private Minecraft minecraft = new Minecraft(Set.of(), Set.of(), Set.of(), Map.of());
     private Placeholders placeholders = new Placeholders(Set.of(), Set.of());
     private Map<String, String> returns = Map.of();
+    private Map<String, List<String>> named = Map.of();
 
     private Data(Map<String, Action> actions, Map<String, Event> events,
                  Map<String, GameValue> gameValues, Map<String, List<Selector>> selectors,
@@ -105,6 +106,7 @@ public final class Data {
         Data data = parse(withExtra(resource("mapping.json"), extra), resource("values.json"), resource("catalog.json"));
         data.pickers = pickers(Json.object(Json.parse(resource("pickers.json"))), extra);
         data.returns = returns(extra);
+        data.named = named(extra);
         Map<String, Object> mc = Json.object(Json.parse(resource("minecraft.json")));
         data.minecraft = new Minecraft(strings(mc.get("items")), strings(mc.get("blocks")),
                 strings(mc.get("enchantments")), components(mc.get("components"),
@@ -134,6 +136,21 @@ public final class Data {
         String own = returns.get(action.id() + "." + arg.id());
         if (own != null) return own;
         return arg.equals(action.result()) ? returned(action) : null;
+    }
+
+    public List<String> named(String actionId) {
+        return named.get(actionId);
+    }
+
+    private static Map<String, List<String>> named(Map<String, Object> extra) {
+        if (extra.get("named") == null) return Map.of();
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        Json.object(extra.get("named")).forEach((id, raw) -> {
+            List<String> params = new ArrayList<>();
+            for (Object p : Json.array(raw)) params.add(Json.string(p));
+            out.put(id, List.copyOf(params));
+        });
+        return Collections.unmodifiableMap(out);
     }
 
     private static Map<String, String> returns(Map<String, Object> extra) {

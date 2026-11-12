@@ -4,10 +4,10 @@
 
 | Раздел | Действий | Условий |
 |:--|--:|--:|
-| [Игрок](player.md) | 175 | 42 |
+| [Игрок](player.md) | 176 | 42 |
 | [Сущность](entity.md) | 219 | 21 |
-| [Мир](world.md) | 133 | 22 |
-| [Переменные](variable.md) | 320 | 29 |
+| [Мир](world.md) | 145 | 23 |
+| [Переменные](variable.md) | 329 | 32 |
 | [Выборка](select.md) | 34 | — |
 | [Повторения](repeat.md) | 11 | — |
 | [Контроль](control.md) | 7 | — |
@@ -56,6 +56,8 @@
 | Выбрать сущность по условию | [`entity_by_conditional`](select.md#entity_by_conditional) | Выборка |
 | Выбрать цель события | [`event_target`](select.md#event_target) | Выборка |
 | Выгнать игрока | [`kick`](player.md#kick) | Игрок |
+| Выгрузить все ячейки | [`cell_unload_all`](variable.md#cell_unload_all) | Переменные |
+| Выгрузить ячейку | [`cell_unload`](variable.md#cell_unload) | Переменные |
 | Выдать предмет | [`give_items`](player.md#give_items) | Игрок |
 | Выдать случайный предмет | [`give_random_item`](player.md#give_random_item) | Игрок |
 | Выдать эффект | [`give_potion_effect`](player.md#give_potion_effect) | Игрок |
@@ -77,15 +79,21 @@
 | Добавить всех игроков | [`add_all_players`](select.md#add_all_players) | Выборка |
 | Добавить всех мобов | [`add_all_mobs`](select.md#add_all_mobs) | Выборка |
 | Добавить всех сущностей | [`add_all_entities`](select.md#add_all_entities) | Выборка |
+| Добавить выбор варианта | [`add_single_option_dialog_input`](world.md#add_single_option_dialog_input) | Мир |
 | Добавить зачарование предмету | [`add_item_enchantment`](variable.md#add_item_enchantment) | Переменные |
 | Добавить значение | [`append_value`](variable.md#append_value) | Переменные |
 | Добавить игрока по имени/UUID | [`add_player_by_name`](select.md#add_player_by_name) | Выборка |
 | Добавить игрока по условию | [`add_player_by_conditional`](select.md#add_player_by_conditional) | Выборка |
+| Добавить кнопку в диалоговое окно | [`add_dialog_button`](world.md#add_dialog_button) | Мир |
 | Добавить кузнечный рецепт отделки | [`add_custom_smithing_trim_recipe`](world.md#add_custom_smithing_trim_recipe) | Мир |
 | Добавить кузнечный рецепт улучшения | [`add_custom_smithing_transform_recipe`](world.md#add_custom_smithing_transform_recipe) | Мир |
 | Добавить моба по имени/UUID | [`add_mob_by_name`](select.md#add_mob_by_name) | Выборка |
+| Добавить переключатель | [`add_boolean_option_dialog_input`](world.md#add_boolean_option_dialog_input) | Мир |
+| Добавить поле ввода текста | [`add_text_box_dialog_input`](world.md#add_text_box_dialog_input) | Мир |
+| Добавить ползунок числа | [`add_number_range_dialog_input`](world.md#add_number_range_dialog_input) | Мир |
 | Добавить последнего появившегося моба | [`add_last_mob`](select.md#add_last_mob) | Выборка |
 | Добавить последнюю появившуюся сущность | [`add_last_entity`](select.md#add_last_entity) | Выборка |
+| Добавить предмет в диалоговое окно | [`add_item_dialog_body`](world.md#add_item_dialog_body) | Мир |
 | Добавить рецепт выплавки | [`add_custom_cooking_recipe`](world.md#add_custom_cooking_recipe) | Мир |
 | Добавить рецепт камнереза | [`add_custom_stonecutting_recipe`](world.md#add_custom_stonecutting_recipe) | Мир |
 | Добавить рецепт крафта | [`add_custom_crafting_recipe`](world.md#add_custom_crafting_recipe) | Мир |
@@ -96,6 +104,7 @@
 | Добавить строку меню | [`add_inventory_menu_row`](player.md#add_inventory_menu_row) | Игрок |
 | Добавить сущность по имени/UUID | [`add_entity_by_name`](select.md#add_entity_by_name) | Выборка |
 | Добавить сущность по условию | [`add_entity_by_conditional`](select.md#add_entity_by_conditional) | Выборка |
+| Добавить текст в диалоговое окно | [`add_text_dialog_body`](world.md#add_text_dialog_body) | Мир |
 | Добавить цель события | [`add_event_target`](select.md#add_event_target) | Выборка |
 | Если местоположение внутри блока | [`location_in_block`](world.md#location_in_block) | Мир |
 | Есть траву | [`eat_grass`](entity.md#eat_grass) | Сущность |
@@ -103,7 +112,9 @@
 | Завершить использование предмета | [`player.complete_using_active_item`](player.md#playercomplete_using_active_item) | Игрок |
 | Завершить использование предмета | [`entity.complete_using_active_item`](entity.md#entitycomplete_using_active_item) | Сущность |
 | Заглушить сущность | [`set_silenced`](entity.md#set_silenced) | Сущность |
+| Загрузить все переменные ячейки | [`cell_load_all`](variable.md#cell_load_all) | Переменные |
 | Загрузить сохранённый инвентарь | [`load_inventory`](player.md#load_inventory) | Игрок |
+| Загрузить ячейку | [`cell_load`](variable.md#cell_load) | Переменные |
 | Зажечь крипера | [`ignite_creeper`](entity.md#ignite_creeper) | Сущность |
 | Закодировать байты | [`code_bytes`](variable.md#code_bytes) | Переменные |
 | Закрыть диалоговое окно | [`close_dialog_menu`](player.md#close_dialog_menu) | Игрок |
@@ -287,6 +298,7 @@
 | Перевернуть список | [`reverse_list`](variable.md#reverse_list) | Переменные |
 | Перевести число в другой диапазон | [`map_range`](variable.md#map_range) | Переменные |
 | Передвинуть границу мира | [`shift_world_border`](player.md#shift_world_border) | Игрок |
+| Переключатель диалога включён | [`dialog_input_is_true`](world.md#dialog_input_is_true) | Мир |
 | Переменная существует | [`var.exists`](variable.md#varexists) | Переменные |
 | Переместить игрока в другой мир | [`redirect_world`](player.md#redirect_world) | Игрок |
 | Переместить на другой сервер | [`transfer_to_other_server`](player.md#transfer_to_other_server) | Игрок |
@@ -315,6 +327,7 @@
 | Показать меню | [`show_inventory_menu`](player.md#show_inventory_menu) | Игрок |
 | Показать отладочный маркер | [`show_debug_marker`](player.md#show_debug_marker) | Игрок |
 | Показать скорборд | [`show_scoreboard`](player.md#show_scoreboard) | Игрок |
+| Показать созданное диалоговое окно | [`show_dialog_menu`](player.md#show_dialog_menu) | Игрок |
 | Показать текст таблички | [`display_sign_text`](player.md#display_sign_text) | Игрок |
 | Показать удар в колокол | [`display_bell_ring`](player.md#display_bell_ring) | Игрок |
 | Показать экран демо-режима | [`show_demo_screen`](player.md#show_demo_screen) | Игрок |
@@ -395,6 +408,7 @@
 | Получить описание предмета | [`get_item_lore`](variable.md#get_item_lore) | Переменные |
 | Получить отображаемое в инвентаре имя предмета | [`get_item_effective_name`](variable.md#get_item_effective_name) | Переменные |
 | Получить отображаемый предмет сокровищницы | [`get_vault_displayed_item`](variable.md#get_vault_displayed_item) | Переменные |
+| Получить переменные ячейки | [`cell_get_variables`](variable.md#cell_get_variables) | Переменные |
 | Получить превращение предмета | [`get_item_use_remainder`](variable.md#get_item_use_remainder) | Переменные |
 | Получить предмет из подозрительного блока | [`get_brushable_block_item`](variable.md#get_brushable_block_item) | Переменные |
 | Получить предметы по Minecraft-тегу | [`get_items_by_tag`](variable.md#get_items_by_tag) | Переменные |
@@ -427,6 +441,7 @@
 | Получить строку описания предмета | [`get_item_lore_line`](variable.md#get_item_lore_line) | Переменные |
 | Получить сущностей по Minecraft-тегу | [`get_entity_types_by_tag`](variable.md#get_entity_types_by_tag) | Переменные |
 | Получить схожесть текстов | [`get_text_similarity`](variable.md#get_text_similarity) | Переменные |
+| Получить текст из диалогового окна | [`get_dialog_text`](variable.md#get_dialog_text) | Переменные |
 | Получить текст книги | [`get_book_text`](variable.md#get_book_text) | Переменные |
 | Получить текст строки таблички | [`get_sign_text`](variable.md#get_sign_text) | Переменные |
 | Получить тип блока | [`get_block_material`](variable.md#get_block_material) | Переменные |
@@ -446,6 +461,7 @@
 | Получить цвет частицы | [`get_particle_color`](variable.md#get_particle_color) | Переменные |
 | Получить центральное значение между векторами | [`get_midpoint_between_vectors`](variable.md#get_midpoint_between_vectors) | Переменные |
 | Получить центральное местоположение | [`center_location`](variable.md#center_location) | Переменные |
+| Получить число из диалогового окна | [`get_dialog_number`](variable.md#get_dialog_number) | Переменные |
 | Получить число по символу | [`char_to_number`](variable.md#char_to_number) | Переменные |
 | Получить ширину текста в пикселях | [`get_text_width`](variable.md#get_text_width) | Переменные |
 | Получить эффекты зелий из предмета | [`get_item_potion_effects`](variable.md#get_item_potion_effects) | Переменные |
@@ -502,6 +518,7 @@
 | Рандомизировать словарь | [`randomize_map_order`](variable.md#randomize_map_order) | Переменные |
 | Рандомизировать список | [`randomize_list_order`](variable.md#randomize_list_order) | Переменные |
 | Расширить меню | [`expand_inventory_menu`](player.md#expand_inventory_menu) | Игрок |
+| Регион пересекается с регионом | [`range_intersects_range`](variable.md#range_intersects_range) | Переменные |
 | Режим игры равен | [`gamemode_equals`](player.md#gamemode_equals) | Игрок |
 | Рецепт существует | [`has_custom_recipe`](world.md#has_custom_recipe) | Мир |
 | Рост остановлен | [`event_is_age_locked`](world.md#event_is_age_locked) | Мир |
@@ -555,6 +572,7 @@
 | Создать визуализатор предмета | [`spawn_item_display`](world.md#spawn_item_display) | Мир |
 | Создать визуализатор текста | [`spawn_text_display`](world.md#spawn_text_display) | Мир |
 | Создать дерево | [`generate_tree`](world.md#generate_tree) | Мир |
+| Создать диалоговое окно | [`create_dialog`](world.md#create_dialog) | Мир |
 | Создать картину | [`spawn_painting`](world.md#spawn_painting) | Мир |
 | Создать кристалл Энда | [`spawn_end_crystal`](world.md#spawn_end_crystal) | Мир |
 | Создать местоположение | [`set_all_coordinates`](variable.md#set_all_coordinates) | Переменные |
@@ -586,6 +604,7 @@
 | Сообщение равно | [`chat_message_equals`](player.md#chat_message_equals) | Игрок |
 | Сортировать словарь | [`sort_any_map`](variable.md#sort_any_map) | Переменные |
 | Сохранить текущий инвентарь | [`save_inventory`](player.md#save_inventory) | Игрок |
+| Сохранить ячейку | [`cell_save`](variable.md#cell_save) | Переменные |
 | Список содержит значение | [`list_contains_value`](variable.md#list_contains_value) | Переменные |
 | Спит | [`is_sleeping`](player.md#is_sleeping) | Игрок |
 | Среднее значение | [`average`](variable.md#average) | Переменные |
@@ -625,6 +644,7 @@
 | Удалить значение из списка по индексу | [`remove_list_value_at_index`](variable.md#remove_list_value_at_index) | Переменные |
 | Удалить значение скорборда по счёту | [`remove_scoreboard_score_by_score`](world.md#remove_scoreboard_score_by_score) | Мир |
 | Удалить значение скорборда по тексту | [`remove_scoreboard_score_by_name`](world.md#remove_scoreboard_score_by_name) | Мир |
+| Удалить из ячейки | [`cell_delete`](variable.md#cell_delete) | Переменные |
 | Удалить кастомные теги | [`remove_custom_tags`](entity.md#remove_custom_tags) | Сущность |
 | Удалить кастомные теги блока-сущности | [`remove_tile_block_custom_tags`](world.md#remove_tile_block_custom_tags) | Мир |
 | Удалить кастомные теги предмета | [`remove_item_custom_tags`](variable.md#remove_item_custom_tags) | Переменные |
@@ -638,6 +658,7 @@
 | Удалить местоположение магнетита | [`remove_compass_lodestone`](variable.md#remove_compass_lodestone) | Переменные |
 | Удалить отладочные маркеры | [`clear_debug_markers`](player.md#clear_debug_markers) | Игрок |
 | Удалить повторяющиеся значения | [`remove_list_duplicates`](variable.md#remove_list_duplicates) | Переменные |
+| Удалить поле диалогового окна | [`remove_dialog_input_by_id`](world.md#remove_dialog_input_by_id) | Мир |
 | Удалить предметы | [`remove_items`](player.md#remove_items) | Игрок |
 | Удалить предметы из контейнера | [`remove_container_items`](world.md#remove_container_items) | Мир |
 | Удалить пробелы | [`strip_text`](variable.md#strip_text) | Переменные |
@@ -740,6 +761,7 @@
 | Установить дополнительное здоровье | [`player.set_absorption_health`](player.md#playerset_absorption_health) | Игрок |
 | Установить дополнительное здоровье | [`entity.set_absorption_health`](entity.md#entityset_absorption_health) | Сущность |
 | Установить жало пчелы на игроке | [`set_bee_stingers_in_body`](player.md#set_bee_stingers_in_body) | Игрок |
+| Установить заголовок диалогового окна | [`set_dialog_title`](world.md#set_dialog_title) | Мир |
 | Установить задержку для группы предметов | [`set_item_group_cooldown`](player.md#set_item_group_cooldown) | Игрок |
 | Установить задержку для поднятия | [`set_pickup_delay`](entity.md#set_pickup_delay) | Сущность |
 | Установить задержку предмета | [`set_item_cooldown`](player.md#set_item_cooldown) | Игрок |
@@ -781,6 +803,7 @@
 | Установить козла кричащим | [`set_goat_screaming`](entity.md#set_goat_screaming) | Сущность |
 | Установить количество очков | [`set_death_screen_score`](player.md#set_death_screen_score) | Игрок |
 | Установить количество предметов | [`set_item_amount`](variable.md#set_item_amount) | Переменные |
+| Установить количество столбцов кнопок | [`set_dialog_button_columns`](world.md#set_dialog_button_columns) | Мир |
 | Установить количество частиц | [`set_particle_amount`](variable.md#set_particle_amount) | Переменные |
 | Установить конечный слот события | [`set_event_target_slot`](world.md#set_event_target_slot) | Мир |
 | Установить координату вектора | [`set_vector_component`](variable.md#set_vector_component) | Переменные |
@@ -962,6 +985,7 @@
 | Установить тип аксолотля | [`set_axolotl_type`](entity.md#set_axolotl_type) | Сущность |
 | Установить тип волка | [`set_wolf_type`](entity.md#set_wolf_type) | Сущность |
 | Установить тип грибной коровы | [`set_mushroom_cow_type`](entity.md#set_mushroom_cow_type) | Сущность |
+| Установить тип диалогового окна | [`set_dialog_type`](world.md#set_dialog_type) | Мир |
 | Установить тип жабы | [`set_frog_type`](entity.md#set_frog_type) | Сущность |
 | Установить тип звука | [`set_sound_type`](variable.md#set_sound_type) | Переменные |
 | Установить тип зомби-наутилуса | [`set_zombie_nautilus_variant`](entity.md#set_zombie_nautilus_variant) | Сущность |
@@ -1035,3 +1059,5 @@
 | Является предметом | [`is_item`](entity.md#is_item) | Сущность |
 | Является снарядом | [`is_projectile`](entity.md#is_projectile) | Сущность |
 | Является транспортом | [`is_vehicle`](entity.md#is_vehicle) | Сущность |
+| Ячейка загружена | [`cell_loaded`](variable.md#cell_loaded) | Переменные |
+| Ячейка существует | [`cell_exists`](variable.md#cell_exists) | Переменные |

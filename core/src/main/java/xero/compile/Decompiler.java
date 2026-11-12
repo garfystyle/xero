@@ -638,10 +638,40 @@ public final class Decompiler {
                 return (inverted ? "not " : "") + left + " " + op + " " + r;
             }
         }
+        String pairs = selection == null ? pairs(a, bound, inverted) : null;
+        if (pairs != null) return pairs;
         String in = selection == null ? membership(a, bound) : null;
         if (in != null) return (inverted ? "not " : "") + in;
         String target = selection == null ? "" : target(a, selection);
         return (inverted ? "not " : "") + target + actionName(a) + "(" + args(a, values, bound, false, null) + ")";
+    }
+
+    private String pairs(Data.Action a, Map<String, Object> bound, boolean inverted) {
+        if (!a.id().equals(Conditions.PAIRS)) return null;
+        Set<String> keys = new HashSet<>(bound.keySet());
+        Object mode = bound.get("compare_type");
+        boolean every = keys.remove("compare_type") && (enumIs(mode, "ALL") || enumIs(mode, "all"));
+        if (mode != null && !every && !enumIs(mode, "ANY") && !enumIs(mode, "any")) return null;
+        if (!keys.equals(Set.of("values", "compares"))) return null;
+        List<Object> lefts = cellsOf(bound.get("values")), rights = cellsOf(bound.get("compares"));
+        if (lefts == null || rights == null || lefts.size() < 2 || lefts.size() != rights.size()) return null;
+        List<String> parts = new ArrayList<>();
+        for (int i = 0; i < lefts.size(); i++) {
+            Object left = lefts.get(i), right = rights.get(i);
+            if (!(left instanceof Map<?, ?> l) || !"variable".equals(l.get("type")) || assignable(left) == null) return null;
+            if (!(right instanceof Map<?, ?> r) || !plainCell(Json.object(r))) return null;
+            parts.add(fitting(a.arg("values").kind(), left, false) + (inverted ? " != " : " == ")
+                    + fitting(a.arg("compares").kind(), right, false));
+        }
+        for (Object left : lefts) read(left);
+        return String.join(every != inverted ? " and " : " or ", parts);
+    }
+
+    private static boolean plainCell(Map<String, Object> cell) {
+        if ("number".equals(cell.get("type"))) return only(cell, "type", "number") && cell.get("number") instanceof Json.Num;
+        if ("variable".equals(cell.get("type"))) return isVariableAlone(cell);
+        return "text".equals(cell.get("type")) && only(cell, "type", "text", "parsing") && cell.get("text") instanceof String t
+                && !t.contains("${") && "legacy".equals(cell.get("parsing"));
     }
 
     private String membership(Data.Action a, Map<String, Object> bound) {
@@ -823,6 +853,9 @@ public final class Decompiler {
 
     private String sugar(Data.Action a, Map<String, Object> bound) {
         if (a.id().equals("set_variable_multiple")) return multiple(bound);
+        if (a.id().equals("set_variable_destructure_list")) return destructure(bound);
+        String picks = picks(a, bound);
+        if (picks != null) return picks;
         String built = builtLiteral(a, bound);
         if (built != null) return built;
         String index = index(a, bound);
@@ -934,24 +967,8 @@ public final class Decompiler {
         if (sourceName == null || (!read && !source.equals(variable))) return null;
         String name = Json.string(Json.object(source).get("variable"));
         if (!shapeFits(name, list ? "list" : "map")) return null;
-        String printedKey;
-        if (list) {
-            if (!(key instanceof Map<?, ?> k) || !only(Json.object(k), "type", "number") || !(k.get("number") instanceof Json.Num n))
-                return null;
-            printedKey = literal(n);
-            if (!printedKey.matches("\\d+")) return null;
-        } else {
-            if (key instanceof Map<?, ?> k && "variable".equals(k.get("type"))) {
-                if (!"map".equals(shapes.get(name)) || !isVariableAlone(k)) return null;
-                indexed.add(name);
-                printedKey = value(key, false);
-            } else {
-                if (!(key instanceof Map<?, ?> k) || !only(Json.object(k), "type", "text", "parsing")
-                        || !(k.get("text") instanceof String t)
-                        || !("legacy".equals(k.get("parsing")) || "plain".equals(k.get("parsing")) && Wire.sameInAnyMarkup(t))) return null;
-                printedKey = quote(t, null);
-            }
-        }
+        String printedKey = keyText(list, name, key);
+        if (printedKey == null) return null;
         if (read) {
             String lhs = assignable(variable);
             if (lhs == null) return null;
@@ -965,6 +982,65 @@ public final class Decompiler {
         read(source);
         written.add(name);
         return sourceName + "[" + printedKey + "] = " + v;
+    }
+
+    private String keyText(boolean list, String name, Object key) {
+        if (list) {
+            if (!(key instanceof Map<?, ?> k) || !only(Json.object(k), "type", "number") || !(k.get("number") instanceof Json.Num n))
+                return null;
+            String printed = literal(n);
+            return printed.matches("\\d+") ? printed : null;
+        }
+        if (key instanceof Map<?, ?> k && "variable".equals(k.get("type"))) {
+            if (!"map".equals(shapes.get(name)) || !isVariableAlone(k)) return null;
+            indexed.add(name);
+            return value(key, false);
+        }
+        if (!(key instanceof Map<?, ?> k) || !only(Json.object(k), "type", "text", "parsing")
+                || !(k.get("text") instanceof String t)
+                || !("legacy".equals(k.get("parsing")) || "plain".equals(k.get("parsing")) && Wire.sameInAnyMarkup(t))) return null;
+        return quote(t, null);
+    }
+
+    private String picks(Data.Action a, Map<String, Object> bound) {
+        boolean list = a.id().equals("set_variable_get_list_value_multiple");
+        if (!list && !a.id().equals("set_variable_get_map_value")) return null;
+        String container = list ? "list" : "map", slot = list ? "number" : "key";
+        if (!bound.keySet().equals(Set.of("variable", container, slot))) return null;
+        List<Object> vars = cellsOf(bound.get("variable")), keys = cellsOf(bound.get(slot));
+        if (vars == null || keys == null || vars.size() < 2 || vars.size() != keys.size()) return null;
+        Object source = bound.get(container);
+        String sourceName = assignable(source);
+        if (sourceName == null) return null;
+        String name = Json.string(Json.object(source).get("variable"));
+        if (!shapeFits(name, container)) return null;
+        List<String> lhs = new ArrayList<>(), printed = new ArrayList<>();
+        for (int i = 0; i < vars.size(); i++) {
+            String v = assignable(vars.get(i)), k = keyText(list, name, keys.get(i));
+            if (v == null || k == null) return null;
+            lhs.add(v);
+            printed.add(k);
+        }
+        read(source);
+        for (Object v : vars) written.add(Json.string(Json.object(v).get("variable")));
+        return String.join(", ", lhs) + " = " + sourceName + "[" + String.join(", ", printed) + "]";
+    }
+
+    private String destructure(Map<String, Object> bound) {
+        if (!bound.keySet().equals(Set.of("variables", "list"))) return null;
+        List<Object> vars = cellsOf(bound.get("variables"));
+        Object source = bound.get("list");
+        if (vars == null || vars.size() < 2 || assignable(source) == null) return null;
+        List<String> lhs = new ArrayList<>();
+        for (Object v : vars) {
+            String n = assignable(v);
+            if (n == null) return null;
+            lhs.add(n);
+        }
+        String sourceName = assignable(source);
+        read(source);
+        for (Object v : vars) written.add(Json.string(Json.object(v).get("variable")));
+        return String.join(", ", lhs) + " = " + sourceName;
     }
 
     private static boolean isVariableAlone(Map<?, ?> m) {
@@ -1022,7 +1098,7 @@ public final class Decompiler {
 
     private String args(Data.Action a, List<Object> values, Map<String, Object> bound, boolean statement, String skip) {
         List<String> parts = new ArrayList<>();
-        boolean positional = !extraFirst(a, skip);
+        boolean positional = !extraFirst(a, skip) && data.named(a.id()) == null;
         for (int i = 0; i < a.args().size(); i++) {
             Data.Arg arg = a.args().get(i);
             if (arg.id().equals(skip)) continue;
@@ -1361,6 +1437,7 @@ public final class Decompiler {
             case "game_value" -> gameValue(m);
             case "item" -> item(m);
             case "block" -> block(m);
+            case "cell" -> cell(m);
             case "sound" -> sound(m);
             case "particle" -> particle(m);
             case "potion" -> potion(m);
@@ -1672,6 +1749,16 @@ public final class Decompiler {
         if (!data.minecraft().blocks().contains(id)) return null;
         String s = shortId(id);
         return s == null ? null : "block(" + s + ")";
+    }
+
+    private String cell(Map<String, Object> m) {
+        if (!rich || !only(m, "type", "cell", "global", "storage", "storage_path")) return null;
+        if (!(m.get("cell") instanceof String name) || name.isBlank()) return null;
+        if (!m.containsKey("global") && !m.containsKey("storage") && !m.containsKey("storage_path"))
+            return "cell(" + quote(name, null) + ")";
+        if (!"true".equals(m.get("global")) || !(m.get("storage") instanceof String id) || id.isBlank()
+                || !(m.get("storage_path") instanceof String path) || path.isBlank()) return null;
+        return "cell(" + quote(name, null) + ", storage: " + quote(path, null) + ", id: " + quote(id, null) + ")";
     }
 
     private String sound(Map<String, Object> m) {

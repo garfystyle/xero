@@ -66,7 +66,7 @@ class ErrorsTest {
             e("break", "break бывает только внутри повторения", null),
             e("continue", "continue бывает только внутри повторения", null),
             e("x = \"a\" + 1", "текст в формуле не складывают", "${x}"),
-            e("x = 1\nselect.player_by_conditional(x == 1 and x == 2)", "and/or нельзя", null),
+            e("x = 1\nselect.player_by_conditional(x == 1 and x > 2)", "and/or нельзя", null),
             e("x = 1\ny = foo(x) + 1", "в формуле нет функции «foo»", null),
             e("send_message(\"счёт: ${nope}\")", "переменная «nope» нигде не задана", null),
             e("y = value.location + 1", "— местоположение, а не число", null),

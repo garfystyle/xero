@@ -93,5 +93,58 @@
       "set_variable_ray_trace_result.variable_for_hit_location",
       "set_variable_ray_trace_result.variable_for_hit_block_location"
     ]
+  },
+  "named": {
+    "player_replace_items": [
+      "items",
+      "replace"
+    ],
+    "game_spawn_mob": [
+      "mob",
+      "main_hand"
+    ],
+    "game_spawn_armor_stand": [
+      "chestplate",
+      "leggings",
+      "boots",
+      "right_hand"
+    ],
+    "game_replace_blocks_in_region": [
+      "old_block",
+      "new_block"
+    ],
+    "game_replace_container_items": [
+      "items",
+      "replace"
+    ],
+    "set_variable_ray_trace_result": [
+      "ray_size",
+      "max_distance"
+    ],
+    "game_spawn_effect_cloud": [
+      "radius",
+      "duration"
+    ],
+    "set_variable_remove_text": [
+      "text",
+      "remove"
+    ],
+    "set_variable_set_item_placeable_blocks": [
+      "item",
+      "placeable"
+    ],
+    "set_variable_set_item_destroyable_blocks": [
+      "item",
+      "destroyable"
+    ],
+    "set_variable_get_map_value": [
+      "map",
+      "key",
+      "default_value"
+    ],
+    "game_add_custom_crafting_recipe": [
+      "items",
+      "result"
+    ]
   }
 }

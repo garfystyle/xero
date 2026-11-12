@@ -55,6 +55,8 @@ class FuzzTest {
                     "item(paper, 2, glint: false, damage: 1, model: 2.5, components: \"{rarity:'epic',max_stack_size:4}\")",
                     "item(stick, name: mm\"<gradient:#ff0000:#00ff00>ab</gradient>\", hide_tooltip: true)");
             case "Блок" -> pick(r, "block(stone)", "block(oak_log)");
+            case "Ячейка" -> pick(r, "cell(\"данные\")",
+                    "cell(\"общее\", storage: \"ник/склад\", id: \"16ae1252-6c5d-4d1a-8ab4-353eff992a43\")");
             case "Список" -> depth > 1 ? "[1]" : "[" + sample(r, "Число", depth + 1) + ", _, " + sample(r, "Текст", depth + 1) + "]";
             case "Словарь" -> depth > 1 ? "{\"k\": 1}" : "{\"k\": " + sample(r, "Число", depth + 1) + ", 2: _}";
             case "Эффект частиц" -> "particle(" + pick(r, PARTICLES).toLowerCase() + pick(r, "", ", count: 3", ", first_spread: 0.5") + ")";
@@ -83,8 +85,8 @@ class FuzzTest {
             if (r.nextBoolean()) continue;
             List<String> options = new ArrayList<>(s.options().keySet());
             String o = pick(r, options);
-            args.add(s.id() + ": " + (o.matches("[a-z_][a-z0-9_]*") && !o.equals("game") && !o.equals("save")
-                    && !o.equals("local") && !o.equals("line") ? o : "\"" + o + "\""));
+            args.add(s.id() + ": " + (o.matches("[a-z_][a-z0-9_]*") && xero.lang.Keywords.plainName(o) && !o.equals("game")
+                    && !o.equals("save") && !o.equals("local") && !o.equals("line") ? o : "\"" + o + "\""));
         }
         String name = e.bare() ? e.name() : e.qualified();
         String target = "";

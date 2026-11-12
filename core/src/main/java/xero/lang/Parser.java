@@ -38,6 +38,7 @@ public final class Parser {
     private final List<Diagnostic> diagnostics;
     private int pos;
     private int nest;
+    private boolean picking;
     private Stmt followUp;
 
     private Parser(String source, List<Token> tokens, List<Diagnostic> diagnostics) {
@@ -302,7 +303,13 @@ public final class Parser {
             }
             next();
             List<Expr> values = new ArrayList<>();
-            values.add(expr());
+            boolean wasPicking = picking;
+            picking = names.size() > 1;
+            try {
+                values.add(expr());
+            } finally {
+                picking = wasPicking;
+            }
             while (peek().is(",") && !peek().newline()) {
                 next();
                 values.add(expr());
@@ -589,9 +596,20 @@ public final class Parser {
             if (peek().is("[") && !peek().newline() && indexable(e)) {
                 next();
                 nest++;
-                Expr index = expr();
+                boolean allowed = picking;
+                picking = false;
+                List<Expr> keys = new ArrayList<>();
+                keys.add(expr());
+                while (peek().is(",")) {
+                    Token comma = next();
+                    if (!allowed) throw fail("несколько индексов бывают только при разложении: x, y = l[0, 1]", comma);
+                    keys.add(expr());
+                }
+                picking = allowed;
                 nest--;
                 Token close = expect("]", "ожидалась «]»");
+                Expr index = keys.size() == 1 ? keys.get(0)
+                        : new Ast.ListLit(keys, keys.get(0).span().to(keys.get(keys.size() - 1).span()));
                 e = new Ast.Index(e, index, e.span().to(span(close)));
             } else if (peek().is(".") && !peek().newline() && peek(1).kind() == Token.Kind.IDENT && peek(2).is("(")) {
                 next();

@@ -204,6 +204,7 @@ final class ReferenceDoc {
             case "Звук" -> "sound(entity.player.levelup)";
             case "Эффект частиц" -> "particle(flame)";
             case "Зелье" -> "potion(speed)";
+            case "Ячейка" -> "cell(\"данные\")";
             case "Список" -> arg.list() && arg.capacity() > 1 ? "[[1], [2]]" : "[1, 2]";
             case "Словарь" -> "{\"a\": 1}";
             case Data.VARIABLE -> "x";
@@ -215,12 +216,13 @@ final class ReferenceDoc {
         return a.args().size() == 1 && a.plural(a.args().get(0).id());
     }
 
-    private static String example(Names.Entry e) {
+    private String example(Names.Entry e) {
         Data.Action a = e.action();
         boolean condition = e.space() == Names.Space.CONDITION;
         Data.Arg result = condition || a.container() || onlyVariables(a) ? null : a.result();
+        boolean named = data.named(a.id()) != null;
         List<String> parts = new ArrayList<>();
-        for (Data.Arg arg : a.args()) if (arg != result) parts.add(sample(arg));
+        for (Data.Arg arg : a.args()) if (arg != result) parts.add(named ? arg.id() + ": " + sample(arg) : sample(arg));
         if (a.id().endsWith("_by_conditional") || a.id().equals("repeat_while")) parts.add("x == 1");
         String call = written(e) + "(" + String.join(", ", parts) + ")";
         if (condition) return "if " + call + " { }";

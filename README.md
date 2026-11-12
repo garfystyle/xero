@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.4-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.4%20бета-6366f1?style=flat-square"></a>
+  <a href="https://github.com/garfystyle/xero/releases/tag/v0.1.5-beta"><img alt="версия" src="https://img.shields.io/badge/версия-0.1.5%20бета-6366f1?style=flat-square"></a>
   <img alt="Minecraft" src="https://img.shields.io/badge/Minecraft-26.2-3de8f5?style=flat-square">
   <img alt="VS Code" src="https://img.shields.io/badge/VS%20Code-Java%20не%20нужна-6366f1?style=flat-square">
 </p>
@@ -65,12 +65,12 @@ when player_jump {
 
 **VS Code** — этого достаточно, Java не нужна.
 
-1. Скачай `xero-0.1.4-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.4-beta).
+1. Скачай `xero-0.1.5-beta.vsix` со [страницы релиза](https://github.com/garfystyle/xero/releases/tag/v0.1.5-beta).
 2. VS Code → Расширения → `···` → **Установить из VSIX…**
 
 **Терминал** — по желанию, нужна Java 25.
 
-1. Скачай `xero-0.1.4-beta.zip` оттуда же и распакуй.
+1. Скачай `xero-0.1.5-beta.zip` оттуда же и распакуй.
 2. Добавь папку `bin` в `PATH`.
 
 **Мод [XeroCode](https://github.com/garfystyle/xerocode)** — по желанию: код уходит в игру сам, без команды в чате.
@@ -238,6 +238,10 @@ when player_join {
 ```
 
 - Аргументы — по порядку или по имени. Маркер — словом или по имени: `wait(1, seconds)`, `wait(1, time_unit: seconds)`.
+- У 12 действий порядок аргументов не такой, как у сервера: `remove_text`, `get_map_value`, `replace_items`, `replace_container_items`,
+  `replace_blocks_in_region`, `spawn_mob`, `spawn_armor_stand`, `spawn_effect_cloud`, `ray_trace_result`, `set_item_placeable_blocks`,
+  `set_item_destroyable_blocks`, `add_custom_crafting_recipe`. Их пиши по имени: `remove_text(text: t, remove: "b")`. По порядку они
+  тоже собираются, как раньше, но компилятор предупреждает, а код из мира печатается с именами.
 - Несколько значений — списком. Лишнее сверх ёмкости — ошибка.
 - `x = действие(…)` записывает результат в `x`. Если первым передана переменная и значение меняется в ней, `x =` можно не писать: `set_item_lore(x, "текст")` — то же, что `x = set_item_lore(x, "текст")`.
 - `_` — пустая клетка. Хвост сетки дополняется сам, но посреди сетки без `_` предметы съедут:
@@ -294,9 +298,12 @@ when player_kill_player {
 | `sound(entity.player.levelup, volume: 1, pitch: 2)` | звук |
 | `particle(flame, count: 3)` | эффект частиц |
 | `potion(speed, amplifier: 1, duration: 30s)` | зелье |
+| `cell("данные")` `cell("данные", storage: "ник/хранилище", id: "uuid")` | ячейка хранилища: в файлах мира или в общем хранилище |
 | `value.current_health` | игровое значение |
 | `[1, 2, _]` | список |
 | `{"a": 1, "b": 2}` | словарь |
+
+Ячейка хранит переменные между перезапусками мира: `status = cell_save(cell("данные"), [score, coins])`, потом `cell_load`. У общего хранилища `storage` и `id` пишутся вместе, как в предмете ячейки: их проще всего взять из мира, прочитав код с такой ячейкой.
 
 В тексте `\"` — кавычка, `\\` — обратная косая, `\n` — перенос строки, а `%player%` и другие [плейсхолдеры](docs/placeholders.md) работают как обычно.
 
@@ -460,6 +467,22 @@ when player_join {
 
 Индекс — с нуля, чтение за границей списка даёт 0. Классов в языке нет: вместо них словари.
 
+Несколько значений сразу — разложением:
+
+```kotlin
+when player_join {
+    l = [10, 20, 30]
+    m = {"hp": 20, "mana": 5}
+    x, y, z = l[0, 1, 2]
+    hp, mana = m["hp", "mana"]
+    first, second = l
+    send_message("${x} ${hp} ${second}")
+}
+```
+
+`x, y = l[0, 1]` — один блок «Получить значения из списка», `hp, mana = m["hp", "mana"]` — «Получить значения словаря»,
+`a, b = l` — «Разложить список». Несколько индексов бывают только в разложении: `x = l[0, 1]` — ошибка.
+
 Значения в литерале могут быть любыми. Сервер не считает то, что лежит внутри готового списка, поэтому `[a, 2]` и `{"k": a}` с переменной собираются блоком создания:
 
 ```kotlin
@@ -520,6 +543,10 @@ when player_join {
 ```
 
 `x in 1..5` включает оба конца. `x == 1 or x == 2` собирается в один блок, как `x in [1, 2]`.
+
+Сравнения разных переменных тоже собираются в один блок «Равны»: `a == 1 and b == 2` — режим «Все переменные»,
+`a == 1 or b == 2` — «Любая переменная», а `a != 1 and b != 2` — «Равны» с «НЕ». Справа — число, текст или переменная, пар до 20.
+В «Выбрать … по условию» такая цепочка тоже годится: это одно условие.
 
 ### Повторения
 

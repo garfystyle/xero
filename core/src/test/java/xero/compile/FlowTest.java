@@ -103,7 +103,7 @@ class FlowTest {
         String printed = Decompiler.decompile(DATA, NAMES, module).text();
         assertTrue(printed.contains("x = m[\"hp\"]"), printed);
         assertTrue(printed.contains("y = m[x]"), printed);
-        assertTrue(printed.contains("get_map_value("), "много ключей сразу остаётся старым блоком\n" + printed);
+        assertTrue(printed.contains("a, b = m[\"p\", \"q\"]"), "много ключей сразу — разложение\n" + printed);
         Compiler.Result back = compile(printed);
         assertTrue(back.ok(), () -> back.diagnostics().toString());
         assertNull(RoundTrip.firstDifference(RoundTrip.normalize(DATA, module),
@@ -277,7 +277,8 @@ class FlowTest {
         List<Object> not = ops("x = 1\nif x != 1 and x != 2 {\n    wait(1)\n}");
         assertEquals(List.of("set_variable_value", "if_variable_equals"), actions(not));
         assertTrue(Boolean.TRUE.equals(Json.object(not.get(1)).get("is_inverted")));
-        assertEquals(3L, actions(ops("x = 1\ny = 2\nif x == 1 or y == 2 {\n    wait(1)\n}")).stream().filter("if_variable_equals"::equals).count());
+        assertEquals(List.of("set_variable_value", "set_variable_value", Conditions.PAIRS),
+                actions(ops("x = 1\ny = 2\nif x == 1 or y == 2 {\n    wait(1)\n}")));
     }
 
     @Test

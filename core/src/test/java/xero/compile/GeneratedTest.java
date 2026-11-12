@@ -29,6 +29,7 @@ class GeneratedTest {
             case "Вектор" -> "vec(0, 1, 0)";
             case "Предмет" -> "item(stone)";
             case "Блок" -> "block(stone)";
+            case "Ячейка" -> "cell(\"данные\")";
             case "Список" -> "[1]";
             case "Словарь" -> "{\"a\": 1}";
             case "Эффект частиц" -> "particle(flame)";

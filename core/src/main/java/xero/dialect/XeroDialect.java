@@ -40,7 +40,7 @@ public final class XeroDialect extends Dialect {
     private static final Map<String, String> FACTORIES = Map.ofEntries(
             Map.entry("loc", "location"), Map.entry("vec", "vector"), Map.entry("item", "item"),
             Map.entry("block", "block"), Map.entry("sound", "sound"), Map.entry("particle", "particle"),
-            Map.entry("potion", "potion"));
+            Map.entry("potion", "potion"), Map.entry("cell", "cell"));
 
     @Override protected Map<String, String> factories() { return FACTORIES; }
 
