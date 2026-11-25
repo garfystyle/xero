@@ -6,6 +6,7 @@ import org.teavm.jso.JSObject;
 import xero.compile.Compiler;
 import xero.compile.Decompiler;
 import xero.compile.Delivery;
+import xero.compile.Sources;
 import xero.compile.Wrap;
 import xero.format.Formatter;
 import xero.ide.Service;
@@ -41,7 +42,8 @@ public final class Bridge {
     @JSExport
     public static String build(String name, String text, Reader reader) {
         return guard(() -> {
-            Compiler.Result r = service().build(name, text, loader(reader));
+            Map<String, String> read = new LinkedHashMap<>();
+            Compiler.Result r = service().build(name, text, Sources.recording(loader(reader), read));
             Map<String, Object> o = new LinkedHashMap<>();
             o.put("ok", r.ok());
             o.put("diagnostics", diagnostics(r.diagnostics()));
@@ -52,6 +54,63 @@ public final class Bridge {
                 o.put("lines", handlers.size());
                 o.put("blocks", blocks(handlers));
                 o.put("connected", r.connected());
+                List<Object> files = new ArrayList<>();
+                for (Sources.File f : Sources.files(name, text, read)) files.add(new ArrayList<Object>(List.of(f.path(), f.text())));
+                o.put("files", files);
+            }
+            return o;
+        });
+    }
+
+    @JSExport
+    public static String stamp(String module, String files) {
+        return guard(() -> {
+            List<Sources.File> list = new ArrayList<>();
+            for (Object f : Json.array(Json.parse(files))) {
+                List<Object> pair = Json.array(f);
+                list.add(new Sources.File((String) pair.get(0), (String) pair.get(1)));
+            }
+            Sources.Stamped s = Sources.stamp(Json.object(Json.parse(module)), list, service().data());
+            Map<String, Object> o = new LinkedHashMap<>();
+            o.put("module", Json.write(s.module()));
+            o.put("fits", s.fits());
+            o.put("chunks", s.chunks());
+            o.put("room", s.room());
+            return o;
+        });
+    }
+
+    @JSExport
+    public static String restore(String world) {
+        return guard(() -> {
+            Object parsed = Json.parse(world);
+            Map<String, Object> o = new LinkedHashMap<>();
+            if (!(parsed instanceof Map<?, ?> m) || !(m.get("handlers") instanceof List<?> l)) {
+                o.put("error", "нет поля handlers — это не код мира");
+                return o;
+            }
+            Sources.Reading reading = Sources.read(Json.array(l), service().data());
+            List<Object> found = new ArrayList<>();
+            for (Sources.Found f : reading.found()) {
+                Map<String, Object> one = new LinkedHashMap<>();
+                one.put("id", f.id());
+                one.put("total", f.total());
+                one.put("have", f.have());
+                one.put("complete", f.complete());
+                one.put("expected", f.expected());
+                one.put("matched", f.matched());
+                List<Object> files = new ArrayList<>();
+                if (f.complete()) for (Sources.File file : f.files()) files.add(new ArrayList<Object>(List.of(file.path(), file.text())));
+                one.put("files", files);
+                found.add(one);
+            }
+            o.put("found", found);
+            o.put("restLines", reading.rest().size());
+            if (!reading.rest().isEmpty()) {
+                Map<String, Object> rest = new LinkedHashMap<>();
+                rest.put("handlers", reading.rest());
+                Decompiler.Result r = Decompiler.decompile(service().data(), service().names(), rest);
+                o.put("rest", r.text());
             }
             return o;
         });

@@ -65,7 +65,7 @@ final class Watch {
     }
 
     static void send(Path in, Project.Built built, String at) throws IOException {
-        Map<String, Object> module = Json.object(Json.parse(Json.write(built.module())));
+        Map<String, Object> module = Deliver.withSources(Json.object(Json.parse(Json.write(built.module()))), built);
         List<Delivery.Line> project = Delivery.lines(module);
         Snapshot snap = Snapshot.load(Snapshot.locate(Snapshot.home(in)));
         Delivery.Plan plan = Delivery.plan(Data.load(), snap.world(), project);

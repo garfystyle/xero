@@ -345,9 +345,29 @@ final class Values {
         throw c.stop("здесь true или false", e.span());
     }
 
+    private static final List<String> SOUND_ORDER = List.of("volume", "pitch", "variation", "source");
+    private static final List<String> POTION_ORDER = List.of("amplifier", "duration");
+    private static final List<String> PARTICLE_ORDER = List.of("count", "first_spread", "second_spread", "x_motion", "y_motion",
+            "z_motion", "material", "color", "size", "to_color");
+
+    private void inOrder(Ast.Call call, List<Expr> positional, Map<String, Expr> named, List<String> order) {
+        for (int i = 1; i < positional.size(); i++) {
+            if (i > order.size())
+                throw c.stop("у " + call.name() + "() после id: " + String.join(", ", order), positional.get(i).span());
+            String key = order.get(i - 1);
+            if (positional.get(i) instanceof Ast.Blank) continue;
+            if (named.containsKey(key))
+                throw c.stop("«" + key + "» задано дважды", named.get(key).span());
+            named.put(key, positional.get(i));
+        }
+        if (positional.size() > 1) positional.subList(1, positional.size()).clear();
+    }
+
     private Object sound(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
+        inOrder(call, positional, named, SOUND_ORDER);
         only(call, named, Set.of("volume", "pitch", "variation", "source"));
-        if (positional.size() != 1) throw c.stop("sound(id), например sound(entity.player.levelup, pitch: 2)", call.span());
+        if (positional.size() != 1)
+            throw c.stop("sound(id, volume, pitch), например sound(entity.player.levelup, 1, 2)", call.span());
         String id = id(positional.get(0));
         String bare = id.startsWith("minecraft:") ? id.substring("minecraft:".length()) : id;
         if (!c.data.pickers().sounds().isEmpty() && !c.data.pickers().sounds().contains(bare)) {
@@ -359,8 +379,10 @@ final class Values {
         double pitch = named.containsKey("pitch") ? literal(named.get("pitch")) : 1;
         String variation = "";
         if (named.containsKey("variation")) {
-            if (c.resolved(named.get("variation")) instanceof Ast.Str s) variation = s.text();
-            else c.error("variation — текст в кавычках", named.get("variation").span());
+            Expr given = c.resolved(named.get("variation"));
+            if (given instanceof Ast.Str s && !s.interpolated()) variation = s.text();
+            else if (given instanceof Ast.Num n && n.millis() == null && n.text().matches("-?\\d+")) variation = n.text();
+            else c.error("variation — сид числом или вариация текстом в кавычках", named.get("variation").span());
         }
         String source = "master";
         if (named.containsKey("source")) {
@@ -407,13 +429,15 @@ final class Values {
     }
 
     private Object particleValue(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
+        inOrder(call, positional, named, PARTICLE_ORDER);
         for (String field : List.copyOf(named.keySet()))
             if (!Wire.PARTICLE_FIELDS.contains(field)) {
                 c.warning("у particle() нет «" + field + "» — поле не уйдёт", named.get(field).span(),
                         "есть: " + String.join(", ", Wire.PARTICLE_FIELDS));
                 named.remove(field);
             }
-        if (positional.size() != 1) throw c.stop("particle(id), например particle(flame, count: 10)", call.span());
+        if (positional.size() != 1)
+            throw c.stop("particle(id, count, …), например particle(flame, 10)", call.span());
         String id = id(positional.get(0)).toUpperCase(Locale.ROOT);
         List<String> extras = c.data.pickers().particles().get(id);
         if (extras == null && !c.data.pickers().particles().isEmpty()) {
@@ -474,8 +498,10 @@ final class Values {
     }
 
     private Object potion(Ast.Call call, List<Expr> positional, Map<String, Expr> named) {
+        inOrder(call, positional, named, POTION_ORDER);
         only(call, named, Set.of("amplifier", "duration"));
-        if (positional.size() != 1) throw c.stop("potion(id), например potion(speed, amplifier: 1, duration: 600)", call.span());
+        if (positional.size() != 1)
+            throw c.stop("potion(id, amplifier, duration), например potion(speed, 1, 600)", call.span());
         String id = minecraft(id(positional.get(0)));
         if (!c.data.pickers().potions().isEmpty() && !c.data.pickers().potions().contains(id)) {
             String best = Suggest.best(id, c.data.pickers().potions());

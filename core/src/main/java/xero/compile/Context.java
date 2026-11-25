@@ -11,6 +11,8 @@ import xero.lang.Diagnostic;
 import xero.lang.Keywords;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -50,7 +52,7 @@ final class Context {
     final Map<String, String> external = new LinkedHashMap<>();
     final Map<String, String> origins = new LinkedHashMap<>();
     final Map<Object, Compiler.Origin> sources = new java.util.IdentityHashMap<>();
-    final java.util.Set<Ast.Call> methodCalls = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    final java.util.Set<Ast.Call> methodCalls = Collections.newSetFromMap(new IdentityHashMap<>());
     final Map<String, String> kinds = new LinkedHashMap<>();
     final Map<String, String> likely = new LinkedHashMap<>();
     final Map<String, String> slots = new LinkedHashMap<>();
@@ -69,6 +71,7 @@ final class Context {
     Map<String, String> ownSlots = Map.of();
     boolean storing;
     Ast.Var writing;
+    final Set<Ast.Var> outputs = Collections.newSetFromMap(new IdentityHashMap<>());
     Data.Event happening;
     double unit = 50;
     Ast.Func current;

@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -40,6 +41,10 @@ final class Lints {
 
     void wrote(String name) {
         if (written != null) written.add(name);
+    }
+
+    void mutated(String name) {
+        if (inside != null) inside.add(name);
     }
 
     void name(String name) {
@@ -106,12 +111,17 @@ final class Lints {
 
     void leave(Ast.Func f) {
         for (Ast.Param p : f.params()) {
-            if (failed() || inside.contains(p.name()) || mentioned(p.name(), textsFrom)) continue;
+            if (failed() || inside.contains(p.name()) || reference(p) && written.contains(p.name())
+                    || mentioned(p.name(), textsFrom)) continue;
             c.warning(written.contains(p.name()) ? "«" + p.name() + "» задана, но нигде не читается"
                     : "параметр «" + p.name() + "» не используется", p.span());
         }
         inside = null;
         written = null;
+    }
+
+    private static boolean reference(Ast.Param p) {
+        return p.type() != null && "variable".equals(Declarations.PARAM_TYPES.get(p.type().toLowerCase(Locale.ROOT)));
     }
 
     private boolean failed() {

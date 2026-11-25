@@ -84,7 +84,7 @@ public final class Delivery {
         private static Map<String, Object> row(Line line, Line before) {
             Map<String, Object> o = new LinkedHashMap<>();
             o.put("position", line.position());
-            o.put("handler", line.json());
+            o.put("handler", Sources.withMarkOf(line.json(), before == null ? null : before.json()));
             if (before != null) o.put("was", before.json());
             return o;
         }
@@ -93,7 +93,7 @@ public final class Delivery {
             List<Object> handlers = new ArrayList<>();
             for (Line p : project) {
                 int i = indexOf(same, p);
-                handlers.add(i >= 0 ? kept.get(i).json() : p.json());
+                handlers.add(i >= 0 ? Sources.withMarkOf(kept.get(i).json(), p.json()) : p.json());
             }
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("handlers", handlers);
@@ -193,6 +193,7 @@ public final class Delivery {
         Map<String, Object> copy = new TreeMap<>();
         for (Map.Entry<String, Object> e : handler.entrySet()) {
             if (e.getKey().equals("position")) continue;
+            if (e.getKey().equals(Declarations.CUSTOM_DATA) && Sources.mark(e.getValue())) continue;
             if (e.getKey().equals("values") && e.getValue() instanceof List<?> l)
                 copy.put("values", named(data, null, Wire.tidyDeclaration(Json.array(l))));
             else if (e.getKey().equals("operations") && e.getValue() instanceof List<?> l) copy.put("operations", ops(data, Json.array(l)));
@@ -282,11 +283,12 @@ public final class Delivery {
     }
 
     static Object plain(Object v) {
-        if (v instanceof Json.Num n) {
+        if (v instanceof Json.Num || v instanceof Number) {
+            String text = v.toString();
             try {
-                return new BigDecimal(n.text()).stripTrailingZeros().toPlainString();
+                return new BigDecimal(text).stripTrailingZeros().toPlainString();
             } catch (NumberFormatException e) {
-                return n.text();
+                return text;
             }
         }
         if (v instanceof Map<?, ?> m) {

@@ -25,6 +25,12 @@ import java.util.stream.Stream;
 final class Project {
     record Built(Map<String, Object> module, List<Diagnostic> diagnostics, Map<String, String> texts,
                  String name, Set<Path> files, int errors, int warnings, List<Object> connected) {
+        List<xero.compile.Sources.File> sources() {
+            Map<String, String> read = new LinkedHashMap<>(texts);
+            String entry = read.remove(name);
+            return xero.compile.Sources.files(name, entry, read);
+        }
+
         boolean ok() { return errors == 0; }
 
         int lines() { return Json.array(module.get("handlers")).size(); }

@@ -2,6 +2,7 @@ package xero.cli;
 
 import xero.compile.Decompiler;
 import xero.compile.Delivery;
+import xero.compile.Sources;
 import xero.data.Data;
 import xero.data.Names;
 import xero.json.Json;
@@ -83,7 +84,7 @@ final class Deliver {
                 ERR.println("Не залито: ошибок " + built.errors() + (built.warnings() > 0 ? ", предупреждений " + built.warnings() : ""));
                 return 1;
             }
-            module = Json.object(Json.parse(Json.write(built.module())));
+            module = withSources(Json.object(Json.parse(Json.write(built.module()))), built);
             connected = built.connected();
         }
         List<Delivery.Line> project = Delivery.lines(module);
@@ -316,6 +317,14 @@ final class Deliver {
         OUT.println("  " + what + ": " + String.join(", ", names) + (lines.size() > LISTED ? " … и ещё " + (lines.size() - LISTED) : ""));
     }
 
+    static Map<String, Object> withSources(Map<String, Object> module, Project.Built built) {
+        Sources.Stamped s = Sources.stamp(module, built.sources(), Data.load());
+        if (s.fits()) return s.module();
+        OUT.println("Исходник в мир не положен: " + (s.chunks() == Integer.MAX_VALUE ? "он больше 16 МБ"
+                : "нужно строк " + s.chunks() + ", а свободных " + s.room()) + ". Из мира код прочитается декомпиляцией.");
+        return module;
+    }
+
     static int pull(String[] args) throws IOException {
         String source = null, output = null;
         boolean overwrite = false, inGame = false;
@@ -351,7 +360,13 @@ final class Deliver {
         snap.pulled(handlers);
         snap.save();
         Data data = Data.load();
-        Map<String, Object> module = Map.of("handlers", handlers);
+        Sources.Reading reading = Sources.read(handlers, data);
+        boolean restored = restore(reading, parent, overwrite);
+        if (restored && reading.rest().isEmpty()) {
+            OUT.println("Копия мира для проверок перед заливкой: " + snap.file);
+            return 0;
+        }
+        Map<String, Object> module = Map.of("handlers", reading.rest());
         Decompiler.Result result = Decompiler.decompile(data, Names.build(data), module);
         String state;
         if (Files.isRegularFile(out)) {
@@ -369,7 +384,8 @@ final class Deliver {
             Files.writeString(out, result.text(), StandardCharsets.UTF_8);
             state = "";
         }
-        String counts = "строк " + handlers.size() + ", блоков " + Project.blocks(handlers);
+        String counts = "строк " + reading.rest().size() + ", блоков " + Project.blocks(reading.rest());
+        if (restored) OUT.println("Строки мира без исходника — декомпиляцией:");
         if (state == null) {
             OUT.println("Код мира: " + counts + ". Файл " + out + " уже есть и отличается — не тронут.");
             OUT.println("  Перезаписать: --overwrite, или в другой файл: -o мир.xero");
@@ -379,6 +395,40 @@ final class Deliver {
         OUT.println("Копия мира для проверок перед заливкой: " + snap.file);
         Main.notes(result);
         return 0;
+    }
+
+    static boolean restore(Sources.Reading reading, Path dir, boolean overwrite) throws IOException {
+        boolean any = false;
+        Path root = (dir == null ? Path.of("") : dir).toAbsolutePath().normalize();
+        for (Sources.Found f : reading.found()) {
+            if (!f.complete()) {
+                OUT.println("Исходник в мире неполный: кусков " + f.have() + " из " + f.total() + ". Его строки разобраны декомпиляцией.");
+                continue;
+            }
+            any = true;
+            int written = 0, same = 0, kept = 0;
+            for (Sources.File file : f.files()) {
+                Path target = root.resolve(file.path()).normalize();
+                if (!target.startsWith(root)) continue;
+                if (Files.isRegularFile(target)) {
+                    String old = Files.readString(target, StandardCharsets.UTF_8);
+                    if (old.equals(file.text())) { same++; continue; }
+                    if (!overwrite) {
+                        kept++;
+                        OUT.println("  " + file.path() + " уже есть и отличается — не тронут");
+                        continue;
+                    }
+                }
+                if (target.getParent() != null) Files.createDirectories(target.getParent());
+                Files.writeString(target, file.text(), StandardCharsets.UTF_8);
+                written++;
+            }
+            OUT.println("Исходник из мира: файлов " + f.files().size() + " (записано " + written + ", уже такие же " + same
+                    + (kept > 0 ? ", не тронуто " + kept + " — перезаписать: --overwrite" : "") + "), строк мира узнано "
+                    + f.matched() + " из " + f.expected() + ".");
+            if (!f.exact()) OUT.println("  Остальные строки исходника в мире не такие: их правили в /dev или заливали построчно.");
+        }
+        return any;
     }
 
     static List<Object> world(String source) throws IOException {

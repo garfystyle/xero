@@ -326,7 +326,7 @@ public final class Decompiler {
     }
 
     private static String customData(Map<String, Object> h) {
-        return h.get(Declarations.CUSTOM_DATA) instanceof String text && !text.startsWith(CANVAS_MARK)
+        return h.get(Declarations.CUSTOM_DATA) instanceof String text && !text.startsWith(CANVAS_MARK) && !Sources.mark(text)
                 ? "@custom_data(" + quote(text, null) + ")\n" : "";
     }
 
@@ -626,8 +626,11 @@ public final class Decompiler {
             Object compare = bound.get("compare");
             Object right = null;
             if (a.plural("compare")) {
-                if (compare instanceof Map<?, ?> m && "array".equals(m.get("type")) && m.get("values") instanceof List<?> cells
-                        && cells.size() == 1 && !isHole(cells.get(0))) right = cells.get(0);
+                if (compare instanceof Map<?, ?> m && "array".equals(m.get("type")) && m.get("values") instanceof List<?> cells) {
+                    if (cells.size() == 1 && !isHole(cells.get(0))) right = cells.get(0);
+                } else if (!isHole(compare)) {
+                    right = compare;
+                }
             } else if (!isHole(compare)) {
                 right = compare;
             }

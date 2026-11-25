@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 
 import static xero.compile.Context.array;
 import static xero.compile.Context.entry;
@@ -376,9 +377,9 @@ public final class Compiler {
                 List<Expr> vars = new ArrayList<>();
                 for (int n = 0; n < m.names().size(); n++) vars.add(new Ast.Var(m.names().get(n), false, m.nameSpans().get(n)));
                 Data.Action action = c.data.actions().get("set_variable_multiple");
-                ops.add(obj("action", action.id(), "values", bind(action, List.of(
+                ops.add(obj("action", action.id(), "values", outputs(vars, () -> bind(action, List.of(
                         named("variables", new Ast.ListLit(vars, m.span())),
-                        named("values", new Ast.ListLit(m.values(), m.span()))), null, m.span())));
+                        named("values", new Ast.ListLit(m.values(), m.span()))), null, m.span()))));
             }
             case Ast.If i -> c.conditions.ifChain(i.branches(), i.otherwise(), ops);
             case Ast.Jump j -> jump(j, ops);
@@ -587,8 +588,10 @@ public final class Compiler {
                 throw c.stop("«" + Names.shortName(action.id()) + "» ничего не записывает в переменную", at);
             bound.put(result.id(), into);
             order.remove(result);
-            if (repeatsTarget(action, args, into)) args = args.subList(1, args.size());
-            else if (skipsExtra(action, order, args, into)) order.remove(0);
+            if (repeatsTarget(action, args, into)) {
+                args = args.subList(1, args.size());
+                c.lints.mutated(into.name());
+            } else if (skipsExtra(action, order, args, into)) order.remove(0);
         }
         for (Arg a : args) {
             String key;
@@ -958,7 +961,7 @@ public final class Compiler {
 
     private void flow(Ast.Var v, String slot) {
         String known = Kinds.slot(c.shown(v));
-        if (known == null || known.equals(Kinds.LIST) || slot.equals(Data.VARIABLE)) return;
+        if (known == null || known.equals(Kinds.LIST) || known.equals(Kinds.VARIABLE) || slot.equals(Data.VARIABLE)) return;
         Kinds.Problem p = Kinds.check(slot, known, null);
         if (p == null) return;
         c.warning(p.error() ? "«" + v.name() + "» — " + Kinds.lower(known) + ", а здесь нужно «" + Kinds.lower(slot) + "»" : p.message(),
@@ -1050,7 +1053,7 @@ public final class Compiler {
             }
         }
         if (scope.equals("local")) c.locals.use(v.name(), v.span(), Data.VARIABLE.equals(kind));
-        if (v != c.writing) c.lints.read(v.name());
+        if (v != c.writing && !c.outputs.contains(v)) c.lints.read(v.name());
         else c.lints.wrote(v.name());
         c.lints.name(v.name());
         c.lints.parameterRead(v.name(), v.span(), true);
@@ -1351,7 +1354,7 @@ public final class Compiler {
             List<Arg> args = list
                     ? List.of(named("variable", into), named("list", i.target()), named("number", i.index()))
                     : List.of(named("variable", into), named("map", i.target()), named("key", i.index()));
-            ops.add(obj("action", action.id(), "values", bind(action, args, null, m.span())));
+            ops.add(obj("action", action.id(), "values", outputs(vars, () -> bind(action, args, null, m.span()))));
             return;
         }
         String kind = Kinds.slot(kindOf(value));
@@ -1361,7 +1364,16 @@ public final class Compiler {
             return;
         }
         Data.Action action = c.data.actions().get("set_variable_destructure_list");
-        ops.add(obj("action", action.id(), "values", bind(action, List.of(named("variables", into), named("list", value)), null, m.span())));
+        ops.add(obj("action", action.id(), "values", outputs(vars, () -> bind(action, List.of(named("variables", into), named("list", value)), null, m.span()))));
+    }
+
+    private <T> T outputs(List<Expr> vars, Supplier<T> work) {
+        for (Expr v : vars) if (v instanceof Ast.Var var) c.outputs.add(var);
+        try {
+            return work.get();
+        } finally {
+            for (Expr v : vars) if (v instanceof Ast.Var var) c.outputs.remove(var);
+        }
     }
 
     private Map<String, Object> indexRead(Ast.Index i, Ast.Var into) {
@@ -1399,6 +1411,7 @@ public final class Compiler {
                     ? List.of(named("list", v), named("number", target.index()), named("value", value))
                     : List.of(named("map", v), named("key", target.index()), named("value", cell));
             out.add(obj("action", action.id(), "values", bind(action, args, v, target.span())));
+            c.lints.mutated(v.name());
             return;
         }
         if (target.target() instanceof Ast.Index inner) {

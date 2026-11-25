@@ -654,12 +654,24 @@ function changes() {
   return changesChannel;
 }
 
+function withSources(r) {
+  if (!r.files) return;
+  const s = call('stamp', r.module, JSON.stringify(r.files));
+  if (s.fits) {
+    r.module = s.module;
+    return;
+  }
+  vscode.window.showInformationMessage('Xero: исходник в мир не положен — ' + (s.chunks > 1e9 ? 'он больше 16 МБ'
+    : 'нужно строк ' + s.chunks + ', свободных ' + s.room) + '. Из мира код прочитается декомпиляцией.');
+}
+
 async function upload(add) {
   const doc = active();
   if (!doc) return;
   await modulesReady(doc);
   const r = compile(doc);
   if (!r) return;
+  withSources(r);
   const dir = doc.uri.scheme === 'file' ? path.dirname(doc.uri.fsPath) : (vscode.workspace.workspaceFolders || [])[0]?.uri.fsPath;
   const file = dir ? copyPath(dir) : null;
   const copy = file ? readCopy(file) : { known: null, how: null, sent: [], handlers: [] };
@@ -924,11 +936,64 @@ async function pullGame() {
   await openWorld(JSON.stringify({ handlers: answer.handlers }));
 }
 
+function restoreSources(text, dir) {
+  const back = call('restore', text);
+  const opened = [];
+  let any = false;
+  for (const f of back.found || []) {
+    if (!f.complete) {
+      vscode.window.showWarningMessage('Xero: исходник в мире неполный — кусков ' + f.have + ' из ' + f.total + ', его строки разобраны заново');
+      continue;
+    }
+    any = true;
+    let written = 0;
+    const aside = [];
+    for (const [rel, body] of f.files) {
+      if (!dir) break;
+      let target = path.join(dir, ...rel.split('/'));
+      if (!path.resolve(target).startsWith(path.resolve(dir) + path.sep)) continue;
+      if (fs.existsSync(target)) {
+        if (fs.readFileSync(target, 'utf8') === body) {
+          opened.push(target);
+          continue;
+        }
+        const ext = path.extname(target);
+        let n = 1;
+        do target = target.slice(0, target.length - ext.length).replace(/-из-мира\d*$/, '') + '-из-мира' + (n++ > 1 ? n - 1 : '') + ext;
+        while (fs.existsSync(target));
+        aside.push(path.relative(dir, target));
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, body, 'utf8');
+      opened.push(target);
+      written++;
+    }
+    vscode.window.showInformationMessage('Xero: исходник из мира — файлов ' + f.files.length + ' (записано ' + written + '), строк узнано '
+      + f.matched + ' из ' + f.expected + (f.matched === f.expected ? '' : ': остальные правили мимо исходника')
+      + (aside.length ? '. Отличающиеся записаны рядом: ' + aside.join(', ') : ''));
+  }
+  return { any, opened, rest: back.rest || '', restLines: back.restLines };
+}
+
 async function openWorld(text) {
-  const r = call('decompile', text);
   const editor = vscode.window.activeTextEditor;
   const dir = editor && editor.document.uri.scheme === 'file' ? path.dirname(editor.document.uri.fsPath)
     : (vscode.workspace.workspaceFolders || [])[0]?.uri.fsPath;
+  const restored = restoreSources(text, dir);
+  if (restored.any && restored.restLines === 0) {
+    if (dir) {
+      const file = copyPath(dir);
+      const copy = readCopy(file);
+      copy.handlers = JSON.parse(text).handlers;
+      copy.known = new Date().toISOString();
+      copy.how = 'pull';
+      copy.sent = [];
+      saveCopy(file, copy);
+    }
+    if (restored.opened.length) vscode.window.showTextDocument(await vscode.workspace.openTextDocument(restored.opened[0]));
+    return;
+  }
+  const r = restored.any ? { text: restored.rest, lines: restored.restLines, blocks: 0 } : call('decompile', text);
   if (dir) {
     const file = copyPath(dir);
     const copy = readCopy(file);
@@ -946,7 +1011,8 @@ async function openWorld(text) {
     vscode.window.showTextDocument(await vscode.workspace.openTextDocument({ language: 'xero', content: r.text }));
     if (target) vscode.window.showInformationMessage('Xero: world.xero уже есть — код мира открыт рядом, без сохранения');
   }
-  vscode.window.showInformationMessage('Xero: код мира — строк ' + r.lines + ', блоков ' + r.blocks + '. Копия мира сохранена для проверок перед заливкой.');
+  vscode.window.showInformationMessage(restored.any ? 'Xero: строк мира без исходника — ' + r.lines + ', они переведены из мира. Копия мира сохранена для проверок перед заливкой.'
+    : 'Xero: код мира — строк ' + r.lines + ', блоков ' + r.blocks + '. Копия мира сохранена для проверок перед заливкой.');
 }
 
 function deactivate() {}

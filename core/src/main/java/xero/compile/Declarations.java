@@ -636,6 +636,7 @@ final class Declarations {
                         if (m.scope() != null) scoped(m.names().get(n), m.scope(), m.nameSpans().get(n));
                         else plain.add(m.names().get(n));
                         assign(m.names().get(n), m.names().size() == m.values().size() ? m.values().get(n) : null);
+                        if (m.scope() == null && !own.containsKey(m.names().get(n))) c.lints.assigned(m.names().get(n), m.nameSpans().get(n));
                     }
                 }
                 case Ast.If i -> {
